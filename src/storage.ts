@@ -1,10 +1,13 @@
 import { v4 as uuidv4 } from "uuid";
 import {
   CachedLabel,
+  CachedTeam,
   getCachedTasks,
   getCachedTeamLabels,
+  getCachedTeams,
   setCachedTasks,
   setCachedTeamLabels,
+  setCachedTeams,
 } from "./repository/localCache";
 import { fetchAssignedIssues } from "./repository/linearApi";
 import {
@@ -28,14 +31,18 @@ export async function retrieveLabelsForTeam(teamId: string): Promise<CachedLabel
   return teamLabels.get(teamId) ?? [];
 }
 
+export async function retrieveTeams(): Promise<CachedTeam[]> {
+  return getCachedTeams();
+}
+
 export async function refreshItemsFromLinear(): Promise<Task[]> {
-  const { tasks: fresh, teamLabels } = await fetchAssignedIssues();
+  const { tasks: fresh, teamLabels, teams } = await fetchAssignedIssues();
   const cached = await getCachedTasks();
   const localOnly = cached.filter((task) => task.syncState !== "synced");
   const queue = await getQueue();
   const merged = applyPendingOpsToAll(fresh, queue);
   const combined = [...localOnly, ...merged];
-  await Promise.all([setCachedTasks(combined), setCachedTeamLabels(teamLabels)]);
+  await Promise.all([setCachedTasks(combined), setCachedTeamLabels(teamLabels), setCachedTeams(teams)]);
   return combined;
 }
 

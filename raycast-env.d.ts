@@ -18,10 +18,14 @@ declare type Preferences = ExtensionPreferences
 declare namespace Preferences {
   /** Preferences accessible in the `list-tasks` command */
   export type ListTasks = ExtensionPreferences & {}
+  /** Preferences accessible in the `create-task` command */
+  export type CreateTask = ExtensionPreferences & {}
 }
 
 declare namespace Arguments {
   /** Arguments passed to the `list-tasks` command */
   export type ListTasks = {}
+  /** Arguments passed to the `create-task` command */
+  export type CreateTask = {}
 }
 

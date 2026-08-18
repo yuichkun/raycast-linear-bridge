@@ -3,6 +3,7 @@ import { Task } from "../types";
 
 const TASKS_CACHE_KEY = "tasks";
 const TEAM_LABELS_CACHE_KEY = "teamLabels";
+const TEAMS_CACHE_KEY = "teams";
 
 export async function getCachedTasks(): Promise<Task[]> {
   const raw = await LocalStorage.getItem<string>(TASKS_CACHE_KEY);
@@ -24,4 +25,15 @@ export async function getCachedTeamLabels(): Promise<Map<string, CachedLabel[]>>
 
 export async function setCachedTeamLabels(teamLabels: Map<string, CachedLabel[]>): Promise<void> {
   await LocalStorage.setItem(TEAM_LABELS_CACHE_KEY, JSON.stringify([...teamLabels.entries()]));
+}
+
+export type CachedTeam = { id: string; name: string };
+
+export async function getCachedTeams(): Promise<CachedTeam[]> {
+  const raw = await LocalStorage.getItem<string>(TEAMS_CACHE_KEY);
+  return raw ? JSON.parse(raw) : [];
+}
+
+export async function setCachedTeams(teams: CachedTeam[]): Promise<void> {
+  await LocalStorage.setItem(TEAMS_CACHE_KEY, JSON.stringify(teams));
 }

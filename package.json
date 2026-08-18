@@ -15,6 +15,12 @@
       "title": "List Tasks",
       "description": "lists your Linear tasks",
       "mode": "view"
+    },
+    {
+      "name": "create-task",
+      "title": "Create Task",
+      "description": "creates a new task, local-only by default",
+      "mode": "view"
     }
   ],
   "preferences": [

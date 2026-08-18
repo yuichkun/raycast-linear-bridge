@@ -1,5 +1,6 @@
 import { Action, ActionPanel, Icon, showToast, Toast } from "@raycast/api";
 import { FC } from "react";
+import { formatDateOnly } from "../date";
 import { archiveTask, markTaskComplete, markTaskInProgress, updateDueDate } from "../storage";
 import { Task } from "../types";
 import { ChangeLabels } from "./ChangeLabels";
@@ -11,13 +12,6 @@ type Props = {
   task: Task;
   refetchList: () => void;
 };
-
-function formatDateOnly(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
 
 export const TaskEditMenu: FC<Props> = ({ task, refetchList }) => {
   const handleComplete = async () => {

@@ -1,3 +1,13 @@
+// Linear's dueDate is a date-only value (YYYY-MM-DD). Deliberately avoids
+// Date#toISOString() here: it converts to UTC first, so picking a date late in the day in
+// a timezone ahead of UTC would silently roll over to the previous day.
+export function formatDateOnly(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 export function isPastDue(dueDate?: string): boolean {
   if (!dueDate) return false;
 
