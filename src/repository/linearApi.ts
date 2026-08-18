@@ -1,72 +1,147 @@
-import { Issue, LinearClient } from "@linear/sdk";
+import { LinearClient } from "@linear/sdk";
 import { getLinearClient } from "../linear/client";
 import { Task, WorkflowStateType } from "../types";
 import { SyncOpField } from "./syncQueue";
 
-const doneStateIdCache = new Map<string, string | undefined>();
+// Issue.state / Issue.team / Issue.labels() on the SDK's high-level Issue class each
+// resolve via a separate GraphQL request (confirmed by reading the compiled SDK), which
+// turns fetching N issues into 1 + 3N requests and quickly exhausts Linear's rate limit
+// (2500 req/hour). Querying `issues` directly with nested field selections keeps this to
+// a small, constant number of requests regardless of how many issues are assigned.
+const ISSUES_QUERY = `
+  query AssignedIssues($filter: IssueFilter, $first: Int, $after: String) {
+    issues(filter: $filter, first: $first, after: $after) {
+      nodes {
+        id
+        title
+        description
+        dueDate
+        priority
+        url
+        state {
+          id
+          name
+          type
+        }
+        team {
+          id
+          name
+        }
+        labels {
+          nodes {
+            id
+            name
+          }
+        }
+      }
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+    }
+  }
+`;
 
-async function resolveDoneStateId(client: LinearClient, teamId: string): Promise<string | undefined> {
-  if (doneStateIdCache.has(teamId)) return doneStateIdCache.get(teamId);
+const TEAM_DONE_STATES_QUERY = `
+  query TeamDoneStates {
+    teams(first: 50) {
+      nodes {
+        id
+        states(first: 50) {
+          nodes {
+            id
+            type
+          }
+        }
+      }
+    }
+  }
+`;
 
-  const team = await client.team(teamId);
-  const states = await team.states();
-  const doneState = states.nodes.find((state) => state.type === "completed");
+type RawIssueNode = {
+  id: string;
+  title: string;
+  description: string | null;
+  dueDate: string | null;
+  priority: number;
+  url: string;
+  state: { id: string; name: string; type: string } | null;
+  team: { id: string; name: string } | null;
+  labels: { nodes: { id: string; name: string }[] };
+};
 
-  doneStateIdCache.set(teamId, doneState?.id);
-  return doneState?.id;
-}
-
-async function toTask(client: LinearClient, issue: Issue): Promise<Task> {
-  const [state, team, labels] = await Promise.all([issue.state, issue.team, issue.labels()]);
-  const doneStateId = team ? await resolveDoneStateId(client, team.id) : undefined;
-
-  return {
-    id: issue.id,
-    syncState: "synced",
-    title: issue.title,
-    description: issue.description ?? undefined,
-    dueDate: issue.dueDate ?? undefined,
-    priority: issue.priority ?? 0,
-    stateId: state?.id,
-    stateName: state?.name,
-    stateType: state?.type as WorkflowStateType | undefined,
-    doneStateId,
-    teamId: team?.id,
-    teamName: team?.name,
-    labelIds: labels.nodes.map((label) => label.id),
-    labelNames: labels.nodes.map((label) => label.name),
-    pinned: false,
-    url: issue.url,
+type IssuesQueryResult = {
+  issues: {
+    nodes: RawIssueNode[];
+    pageInfo: { hasNextPage: boolean; endCursor: string | null };
   };
+};
+
+type TeamDoneStatesQueryResult = {
+  teams: {
+    nodes: { id: string; states: { nodes: { id: string; type: string }[] } }[];
+  };
+};
+
+async function fetchDoneStateIdByTeam(client: LinearClient): Promise<Map<string, string | undefined>> {
+  const result = await client.client.request<TeamDoneStatesQueryResult, Record<string, never>>(TEAM_DONE_STATES_QUERY);
+  const map = new Map<string, string | undefined>();
+  for (const team of result.teams.nodes) {
+    const doneState = team.states.nodes.find((state) => state.type === "completed");
+    map.set(team.id, doneState?.id);
+  }
+  return map;
 }
 
-async function fetchAllAssignedIssues(client: LinearClient): Promise<Issue[]> {
-  const viewer = await client.viewer;
-  const issues: Issue[] = [];
+async function fetchAllIssueNodes(client: LinearClient, viewerId: string): Promise<RawIssueNode[]> {
+  const nodes: RawIssueNode[] = [];
   let after: string | undefined;
 
-  // Deliberately query via `client.issues({filter: {assignee: ...}})` rather than
-  // `viewer.assignedIssues()`: the latter resolves through a `user(id: ...) { assignedIssues }`
-  // GraphQL path internally, which returned a different (and incomplete) result set than the
-  // direct `issues` query — e.g. an in-progress issue was silently missing from the response.
   for (;;) {
-    const page = await client.issues({
-      filter: { assignee: { id: { eq: viewer.id } } },
+    const result = await client.client.request<IssuesQueryResult, Record<string, unknown>>(ISSUES_QUERY, {
+      filter: { assignee: { id: { eq: viewerId } } },
       first: 100,
       after,
     });
-    issues.push(...page.nodes);
-    if (!page.pageInfo.hasNextPage) break;
-    after = page.pageInfo.endCursor ?? undefined;
+    nodes.push(...result.issues.nodes);
+    if (!result.issues.pageInfo.hasNextPage) break;
+    after = result.issues.pageInfo.endCursor ?? undefined;
   }
 
-  return issues;
+  return nodes;
+}
+
+function toTask(node: RawIssueNode, doneStateIdByTeam: Map<string, string | undefined>): Task {
+  return {
+    id: node.id,
+    syncState: "synced",
+    title: node.title,
+    description: node.description ?? undefined,
+    dueDate: node.dueDate ?? undefined,
+    priority: node.priority ?? 0,
+    stateId: node.state?.id,
+    stateName: node.state?.name,
+    stateType: node.state?.type as WorkflowStateType | undefined,
+    doneStateId: node.team ? doneStateIdByTeam.get(node.team.id) : undefined,
+    teamId: node.team?.id,
+    teamName: node.team?.name,
+    labelIds: node.labels.nodes.map((label) => label.id),
+    labelNames: node.labels.nodes.map((label) => label.name),
+    pinned: false,
+    url: node.url,
+  };
 }
 
 export async function fetchAssignedIssues(): Promise<Task[]> {
   const client = getLinearClient();
-  const issues = await fetchAllAssignedIssues(client);
-  return Promise.all(issues.map((issue) => toTask(client, issue)));
+  const viewer = await client.viewer;
+
+  const [doneStateIdByTeam, nodes] = await Promise.all([
+    fetchDoneStateIdByTeam(client),
+    fetchAllIssueNodes(client, viewer.id),
+  ]);
+
+  return nodes.map((node) => toTask(node, doneStateIdByTeam));
 }
 
 export async function updateIssueField(issueId: string, field: SyncOpField, value: unknown): Promise<void> {
