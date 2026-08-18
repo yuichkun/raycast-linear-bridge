@@ -12,6 +12,11 @@ export default function Command() {
   const [error, setError] = useState<string>();
 
   async function refetchList() {
+    // Fire-and-forget: every mutation (Mark Complete, Rename, ...) calls refetchList()
+    // right after writing to the local cache + queue, so kicking a sync attempt here
+    // (rather than only on mount) means changes reach Linear immediately instead of
+    // waiting for the next time this command happens to be opened.
+    processQueue();
     const cached = await retrieveCachedItems();
     setTasks(cached);
   }
