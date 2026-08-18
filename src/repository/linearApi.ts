@@ -40,11 +40,25 @@ async function toTask(client: LinearClient, issue: Issue): Promise<Task> {
   };
 }
 
+async function fetchAllAssignedIssues(client: LinearClient): Promise<Issue[]> {
+  const viewer = await client.viewer;
+  const issues: Issue[] = [];
+  let after: string | undefined;
+
+  for (;;) {
+    const page = await viewer.assignedIssues({ first: 100, after });
+    issues.push(...page.nodes);
+    if (!page.pageInfo.hasNextPage) break;
+    after = page.pageInfo.endCursor ?? undefined;
+  }
+
+  return issues;
+}
+
 export async function fetchAssignedIssues(): Promise<Task[]> {
   const client = getLinearClient();
-  const viewer = await client.viewer;
-  const assignedIssues = await viewer.assignedIssues();
-  return Promise.all(assignedIssues.nodes.map((issue) => toTask(client, issue)));
+  const issues = await fetchAllAssignedIssues(client);
+  return Promise.all(issues.map((issue) => toTask(client, issue)));
 }
 
 export async function updateIssueField(issueId: string, field: SyncOpField, value: unknown): Promise<void> {
