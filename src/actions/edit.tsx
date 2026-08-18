@@ -1,6 +1,7 @@
 import { Action, ActionPanel, Icon, showToast, Toast } from "@raycast/api";
 import { FC } from "react";
 import { formatDateOnly } from "../date";
+import { playSound } from "../sound";
 import { archiveTask, markTaskComplete, markTaskInProgress, updateDueDate } from "../storage";
 import { Task } from "../types";
 import { ChangeLabels } from "./ChangeLabels";
@@ -25,6 +26,7 @@ export const TaskEditMenu: FC<Props> = ({ task, refetchList }) => {
       await markTaskComplete(task.id);
       refetchList();
       await showToast({ style: Toast.Style.Success, title: "Marked task as complete", message: task.title });
+      await playSound("todo.mp3");
     } catch (e) {
       await showToast({
         style: Toast.Style.Failure,
