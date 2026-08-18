@@ -119,12 +119,26 @@ export async function archiveTask(taskId: string): Promise<void> {
   const task = cached.find((t) => t.id === taskId);
   if (!task || task.archivedLocally) return;
 
+  if (task.syncState !== "synced") {
+    // Local-only (or not-yet-created) tasks have nothing to archive on Linear's side —
+    // drop them from the cache outright instead of leaving an archivedLocally=true
+    // phantom that would otherwise sit there forever (no queue op will ever resolve it).
+    await setCachedTasks(cached.filter((t) => t.id !== taskId));
+    return;
+  }
+
   const updated = cached.map((t) => (t.id === taskId ? { ...t, archivedLocally: true } : t));
   await setCachedTasks(updated);
+  await enqueueArchive(taskId);
+}
 
-  if (task.syncState === "synced") {
-    await enqueueArchive(taskId);
+export async function archiveCompletedTasks(): Promise<number> {
+  const cached = await getCachedTasks();
+  const completedTasks = cached.filter((task) => task.stateType === "completed" && !task.archivedLocally);
+  for (const task of completedTasks) {
+    await archiveTask(task.id);
   }
+  return completedTasks.length;
 }
 
 export type CreateTaskInput = {

@@ -21,6 +21,12 @@
       "title": "Create Task",
       "description": "creates a new task, local-only by default",
       "mode": "view"
+    },
+    {
+      "name": "archive-completed",
+      "title": "Archive Completed Tasks",
+      "description": "archives all completed tasks",
+      "mode": "no-view"
     }
   ],
   "preferences": [
