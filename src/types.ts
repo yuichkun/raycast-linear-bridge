@@ -16,13 +16,12 @@ export type Task = {
   stateId?: string;
   stateName?: string;
   stateType?: WorkflowStateType;
+  statePosition?: number;
   doneStateId?: string;
+  startStateId?: string;
   teamId?: string;
   teamName?: string;
   labelIds: string[];
   labelNames: string[];
-  pinned: boolean;
-  pinnedAt?: string;
-  manualOrder?: number;
   url?: string;
 };

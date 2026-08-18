@@ -22,6 +22,7 @@ const ISSUES_QUERY = `
           id
           name
           type
+          position
         }
         team {
           id
@@ -42,11 +43,17 @@ const ISSUES_QUERY = `
   }
 `;
 
-const TEAM_DONE_STATES_QUERY = `
-  query TeamDoneStates {
+// Note: `startWorkflowStateId` is NOT a queryable field on Team in Linear's schema — the
+// SDK's own Team.startWorkflowStateId getter derives it from a nested `startWorkflowState
+// { id }` object (confirmed by reading the compiled SDK's Team fragment). Query it nested.
+const TEAM_STATE_IDS_QUERY = `
+  query TeamStateIds {
     teams(first: 50) {
       nodes {
         id
+        startWorkflowState {
+          id
+        }
         states(first: 50) {
           nodes {
             id
@@ -65,7 +72,7 @@ type RawIssueNode = {
   dueDate: string | null;
   priority: number;
   url: string;
-  state: { id: string; name: string; type: string } | null;
+  state: { id: string; name: string; type: string; position: number } | null;
   team: { id: string; name: string } | null;
   labels: { nodes: { id: string; name: string }[] };
 };
@@ -77,18 +84,27 @@ type IssuesQueryResult = {
   };
 };
 
-type TeamDoneStatesQueryResult = {
+type TeamStateIdsQueryResult = {
   teams: {
-    nodes: { id: string; states: { nodes: { id: string; type: string }[] } }[];
+    nodes: {
+      id: string;
+      startWorkflowState: { id: string } | null;
+      states: { nodes: { id: string; type: string }[] };
+    }[];
   };
 };
 
-async function fetchDoneStateIdByTeam(client: LinearClient): Promise<Map<string, string | undefined>> {
-  const result = await client.client.request<TeamDoneStatesQueryResult, Record<string, never>>(TEAM_DONE_STATES_QUERY);
-  const map = new Map<string, string | undefined>();
+type TeamStateIds = { doneStateId?: string; startStateId?: string };
+
+async function fetchTeamStateIds(client: LinearClient): Promise<Map<string, TeamStateIds>> {
+  const result = await client.client.request<TeamStateIdsQueryResult, Record<string, never>>(TEAM_STATE_IDS_QUERY);
+  const map = new Map<string, TeamStateIds>();
   for (const team of result.teams.nodes) {
     const doneState = team.states.nodes.find((state) => state.type === "completed");
-    map.set(team.id, doneState?.id);
+    map.set(team.id, {
+      doneStateId: doneState?.id,
+      startStateId: team.startWorkflowState?.id,
+    });
   }
   return map;
 }
@@ -111,7 +127,9 @@ async function fetchAllIssueNodes(client: LinearClient, viewerId: string): Promi
   return nodes;
 }
 
-function toTask(node: RawIssueNode, doneStateIdByTeam: Map<string, string | undefined>): Task {
+function toTask(node: RawIssueNode, teamStateIds: Map<string, TeamStateIds>): Task {
+  const ids = node.team ? teamStateIds.get(node.team.id) : undefined;
+
   return {
     id: node.id,
     syncState: "synced",
@@ -122,12 +140,13 @@ function toTask(node: RawIssueNode, doneStateIdByTeam: Map<string, string | unde
     stateId: node.state?.id,
     stateName: node.state?.name,
     stateType: node.state?.type as WorkflowStateType | undefined,
-    doneStateId: node.team ? doneStateIdByTeam.get(node.team.id) : undefined,
+    statePosition: node.state?.position,
+    doneStateId: ids?.doneStateId,
+    startStateId: ids?.startStateId,
     teamId: node.team?.id,
     teamName: node.team?.name,
     labelIds: node.labels.nodes.map((label) => label.id),
     labelNames: node.labels.nodes.map((label) => label.name),
-    pinned: false,
     url: node.url,
   };
 }
@@ -136,12 +155,9 @@ export async function fetchAssignedIssues(): Promise<Task[]> {
   const client = getLinearClient();
   const viewer = await client.viewer;
 
-  const [doneStateIdByTeam, nodes] = await Promise.all([
-    fetchDoneStateIdByTeam(client),
-    fetchAllIssueNodes(client, viewer.id),
-  ]);
+  const [teamStateIds, nodes] = await Promise.all([fetchTeamStateIds(client), fetchAllIssueNodes(client, viewer.id)]);
 
-  return nodes.map((node) => toTask(node, doneStateIdByTeam));
+  return nodes.map((node) => toTask(node, teamStateIds));
 }
 
 export async function updateIssueField(issueId: string, field: SyncOpField, value: unknown): Promise<void> {
