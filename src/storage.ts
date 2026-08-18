@@ -79,6 +79,10 @@ export async function updateLabels(taskId: string, labelIds: string[]): Promise<
   await updateTaskField(taskId, "labelIds", labelIds);
 }
 
+export async function updateDescription(taskId: string, description: string | undefined): Promise<void> {
+  await updateTaskField(taskId, "description", description);
+}
+
 async function updateTaskField(taskId: string, field: SyncOpField, value: unknown): Promise<void> {
   const cached = await getCachedTasks();
   const task = cached.find((t) => t.id === taskId);

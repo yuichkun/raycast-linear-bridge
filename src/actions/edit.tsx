@@ -4,6 +4,7 @@ import { archiveTask, markTaskComplete, markTaskInProgress, updateDueDate } from
 import { Task } from "../types";
 import { ChangeLabels } from "./ChangeLabels";
 import { ChangePriority } from "./ChangePriority";
+import { EditDescription } from "./EditDescription";
 import { RenameTask } from "./RenameTask";
 
 type Props = {
@@ -112,6 +113,15 @@ export const TaskEditMenu: FC<Props> = ({ task, refetchList }) => {
           Windows: { modifiers: ["ctrl", "shift"], key: "r" },
         }}
         target={<RenameTask task={task} refetchList={refetchList} />}
+      />
+      <Action.Push
+        title="Edit Description"
+        icon={Icon.Document}
+        shortcut={{
+          macOS: { modifiers: ["cmd", "shift"], key: "e" },
+          Windows: { modifiers: ["ctrl", "shift"], key: "e" },
+        }}
+        target={<EditDescription task={task} refetchList={refetchList} />}
       />
       <Action.Push
         title="Change Labels"
