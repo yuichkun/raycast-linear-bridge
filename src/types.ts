@@ -16,6 +16,7 @@ export type Task = {
   stateId?: string;
   stateName?: string;
   stateType?: WorkflowStateType;
+  doneStateId?: string;
   teamId?: string;
   teamName?: string;
   labelIds: string[];

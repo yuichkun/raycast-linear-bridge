@@ -1,5 +1,6 @@
 import { Color, Icon, List } from "@raycast/api";
 import { useEffect, useState } from "react";
+import { processQueue } from "./sync/processQueue";
 import { refreshItemsFromLinear, retrieveCachedItems } from "./storage";
 import { groupTasksBySection } from "./task-order";
 import { TaskLineItem } from "./TaskLineItem";
@@ -9,6 +10,11 @@ export default function Command() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string>();
+
+  async function refetchList() {
+    const cached = await retrieveCachedItems();
+    setTasks(cached);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -43,6 +49,13 @@ export default function Command() {
     };
   }, []);
 
+  useEffect(() => {
+    // Fire-and-forget: flush any pending offline changes to Linear without blocking the UI.
+    processQueue().then((result) => {
+      if (!result.networkUnreachable && result.failures.length === 0) refetchList();
+    });
+  }, []);
+
   if (error) {
     return (
       <List>
@@ -61,22 +74,22 @@ export default function Command() {
     <List isLoading={isLoading}>
       <List.Section title="⚠️ Outdated" subtitle={`${sections.outdated.length} tasks`}>
         {sections.outdated.map((task) => (
-          <TaskLineItem key={task.id} task={task} />
+          <TaskLineItem key={task.id} task={task} refetchList={refetchList} />
         ))}
       </List.Section>
       <List.Section title="📌 Pinned" subtitle={`${sections.pinned.length} tasks`}>
         {sections.pinned.map((task) => (
-          <TaskLineItem key={task.id} task={task} />
+          <TaskLineItem key={task.id} task={task} refetchList={refetchList} />
         ))}
       </List.Section>
       <List.Section title="📝 Incomplete" subtitle={`${sections.incomplete.length} tasks`}>
         {sections.incomplete.map((task) => (
-          <TaskLineItem key={task.id} task={task} />
+          <TaskLineItem key={task.id} task={task} refetchList={refetchList} />
         ))}
       </List.Section>
       <List.Section title="✅ Done" subtitle={`${sections.complete.length} tasks`}>
         {sections.complete.map((task) => (
-          <TaskLineItem key={task.id} task={task} />
+          <TaskLineItem key={task.id} task={task} refetchList={refetchList} />
         ))}
       </List.Section>
     </List>
