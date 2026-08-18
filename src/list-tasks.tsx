@@ -1,31 +1,25 @@
-import { Color, getPreferenceValues, Icon, List } from "@raycast/api";
-import { LinearClient, Issue } from "@linear/sdk";
+import { Color, Icon, List } from "@raycast/api";
 import { useEffect, useState } from "react";
-
-interface Preferences {
-  linearApiKey: string;
-}
+import { retrieveAllItems } from "./storage";
+import { Task } from "./types";
 
 export default function Command() {
-  const [issues, setIssues] = useState<Issue[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string>();
 
   useEffect(() => {
-    async function fetchAssignedIssues() {
+    async function load() {
       try {
-        const { linearApiKey } = getPreferenceValues<Preferences>();
-        const client = new LinearClient({ apiKey: linearApiKey });
-        const viewer = await client.viewer;
-        const assignedIssues = await viewer.assignedIssues();
-        setIssues(assignedIssues.nodes);
+        const items = await retrieveAllItems();
+        setTasks(items);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Failed to fetch issues from Linear");
       } finally {
         setIsLoading(false);
       }
     }
-    fetchAssignedIssues();
+    load();
   }, []);
 
   if (error) {
@@ -42,8 +36,8 @@ export default function Command() {
 
   return (
     <List isLoading={isLoading}>
-      {issues.map((issue) => (
-        <List.Item key={issue.id} title={issue.title} />
+      {tasks.map((task) => (
+        <List.Item key={task.id} title={task.title} />
       ))}
     </List>
   );
