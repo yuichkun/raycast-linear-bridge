@@ -1,6 +1,6 @@
 import { Color, Icon, List } from "@raycast/api";
 import { useEffect, useState } from "react";
-import { retrieveAllItems } from "./storage";
+import { refreshItemsFromLinear, retrieveCachedItems } from "./storage";
 import { Task } from "./types";
 
 export default function Command() {
@@ -9,17 +9,36 @@ export default function Command() {
   const [error, setError] = useState<string>();
 
   useEffect(() => {
+    let cancelled = false;
+
     async function load() {
-      try {
-        const items = await retrieveAllItems();
-        setTasks(items);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Failed to fetch issues from Linear");
-      } finally {
+      const cached = await retrieveCachedItems();
+      if (cancelled) return;
+      if (cached.length > 0) {
+        setTasks(cached);
         setIsLoading(false);
       }
+
+      try {
+        const fresh = await refreshItemsFromLinear();
+        if (cancelled) return;
+        setTasks(fresh);
+        setError(undefined);
+      } catch (e) {
+        if (cancelled) return;
+        // Cached tasks are still shown even if the background refresh fails (e.g. offline).
+        if (cached.length === 0) {
+          setError(e instanceof Error ? e.message : "Failed to fetch issues from Linear");
+        }
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
     }
+
     load();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   if (error) {
