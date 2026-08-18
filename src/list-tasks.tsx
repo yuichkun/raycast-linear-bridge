@@ -1,8 +1,8 @@
 import { Color, Icon, List } from "@raycast/api";
 import { useEffect, useState } from "react";
 import { useSearch } from "./hooks/useSearch";
-import { processQueue } from "./sync/processQueue";
-import { refreshItemsFromLinear, retrieveCachedItems } from "./storage";
+import { runSync } from "./sync/runSync";
+import { retrieveCachedItems } from "./storage";
 import { groupTasksBySection } from "./task-order";
 import { TaskLineItem } from "./TaskLineItem";
 import { Task } from "./types";
@@ -17,7 +17,7 @@ export default function Command() {
     // right after writing to the local cache + queue, so kicking a sync attempt here
     // (rather than only on mount) means changes reach Linear immediately instead of
     // waiting for the next time this command happens to be opened.
-    processQueue();
+    runSync();
     const cached = await retrieveCachedItems();
     setTasks(cached);
   }
@@ -34,7 +34,7 @@ export default function Command() {
       }
 
       try {
-        const fresh = await refreshItemsFromLinear();
+        const { tasks: fresh } = await runSync();
         if (cancelled) return;
         setTasks(fresh);
         setError(undefined);
@@ -53,13 +53,6 @@ export default function Command() {
     return () => {
       cancelled = true;
     };
-  }, []);
-
-  useEffect(() => {
-    // Fire-and-forget: flush any pending offline changes to Linear without blocking the UI.
-    processQueue().then((result) => {
-      if (!result.networkUnreachable && result.failures.length === 0) refetchList();
-    });
   }, []);
 
   // Archived tasks stay in the cache (so a failed archive can be rolled back accurately)
