@@ -27,6 +27,13 @@
       "title": "Archive Completed Tasks",
       "description": "archives all completed tasks",
       "mode": "no-view"
+    },
+    {
+      "name": "sync",
+      "title": "Sync",
+      "description": "flushes pending offline changes to Linear and pulls the latest state",
+      "mode": "no-view",
+      "interval": "5m"
     }
   ],
   "preferences": [

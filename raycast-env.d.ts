@@ -22,6 +22,8 @@ declare namespace Preferences {
   export type CreateTask = ExtensionPreferences & {}
   /** Preferences accessible in the `archive-completed` command */
   export type ArchiveCompleted = ExtensionPreferences & {}
+  /** Preferences accessible in the `sync` command */
+  export type Sync = ExtensionPreferences & {}
 }
 
 declare namespace Arguments {
@@ -31,5 +33,7 @@ declare namespace Arguments {
   export type CreateTask = {}
   /** Arguments passed to the `archive-completed` command */
   export type ArchiveCompleted = {}
+  /** Arguments passed to the `sync` command */
+  export type Sync = {}
 }
 
