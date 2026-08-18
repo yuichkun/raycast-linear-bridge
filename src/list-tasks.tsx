@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useSearch } from "./hooks/useSearch";
 import { processQueue } from "./sync/processQueue";
 import { refreshItemsFromLinear, retrieveCachedItems } from "./storage";
-import { groupTasksBySection, TaskSection } from "./task-order";
+import { groupTasksBySection } from "./task-order";
 import { TaskLineItem } from "./TaskLineItem";
 import { Task } from "./types";
 
@@ -65,14 +65,12 @@ export default function Command() {
   const { searchText, setSearchText, filteredItems } = useSearch(tasks);
   const filteredTaskIds = new Set(filteredItems.map((task) => task.id));
   const sections = groupTasksBySection(tasks);
-  const visibleSections: Record<TaskSection, Task[]> = {
+  const visibleSections = sections.map((section) => ({
+    ...section,
     // Preserve todo-buddy's behavior: outdated tasks ignore the active search filter,
     // so a past-due task never gets hidden by a search.
-    outdated: sections.outdated,
-    pinned: sections.pinned.filter((task) => filteredTaskIds.has(task.id)),
-    incomplete: sections.incomplete.filter((task) => filteredTaskIds.has(task.id)),
-    complete: sections.complete.filter((task) => filteredTaskIds.has(task.id)),
-  };
+    tasks: section.key === "outdated" ? section.tasks : section.tasks.filter((task) => filteredTaskIds.has(task.id)),
+  }));
 
   if (error) {
     return (
@@ -93,26 +91,13 @@ export default function Command() {
       onSearchTextChange={setSearchText}
       searchBarPlaceholder="Search by anything. Task title, label, team, date, etc."
     >
-      <List.Section title="⚠️ Outdated" subtitle={`${visibleSections.outdated.length} tasks`}>
-        {visibleSections.outdated.map((task) => (
-          <TaskLineItem key={task.id} task={task} refetchList={refetchList} />
-        ))}
-      </List.Section>
-      <List.Section title="📌 Pinned" subtitle={`${visibleSections.pinned.length} tasks`}>
-        {visibleSections.pinned.map((task) => (
-          <TaskLineItem key={task.id} task={task} refetchList={refetchList} />
-        ))}
-      </List.Section>
-      <List.Section title="📝 Incomplete" subtitle={`${visibleSections.incomplete.length} tasks`}>
-        {visibleSections.incomplete.map((task) => (
-          <TaskLineItem key={task.id} task={task} refetchList={refetchList} />
-        ))}
-      </List.Section>
-      <List.Section title="✅ Done" subtitle={`${visibleSections.complete.length} tasks`}>
-        {visibleSections.complete.map((task) => (
-          <TaskLineItem key={task.id} task={task} refetchList={refetchList} />
-        ))}
-      </List.Section>
+      {visibleSections.map((section) => (
+        <List.Section key={section.key} title={section.title} subtitle={`${section.tasks.length} tasks`}>
+          {section.tasks.map((task) => (
+            <TaskLineItem key={task.id} task={task} refetchList={refetchList} />
+          ))}
+        </List.Section>
+      ))}
     </List>
   );
 }
