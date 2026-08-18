@@ -91,6 +91,7 @@ export default function Command() {
   return (
     <List
       isLoading={isLoading}
+      isShowingDetail
       searchText={searchText}
       onSearchTextChange={setSearchText}
       searchBarPlaceholder="Search by anything. Task title, label, team, date, etc."

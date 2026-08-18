@@ -1,7 +1,7 @@
 import { ActionPanel, List } from "@raycast/api";
 import { FC } from "react";
 import { TaskEditMenu } from "./actions/edit";
-import { PRIORITY_COLORS, PRIORITY_ICONS } from "./constants";
+import { PRIORITY_COLORS, PRIORITY_ICONS, PRIORITY_NAMES } from "./constants";
 import { classifyTask } from "./task-order";
 import { Task } from "./types";
 
@@ -28,6 +28,30 @@ export const TaskLineItem: FC<Props> = ({ task, refetchList }) => {
         { tag: showStateTag && task.stateName ? { value: task.stateName } : null },
         { text: task.dueDate ? new Date(task.dueDate).toLocaleDateString() : null },
       ]}
+      detail={
+        <List.Item.Detail
+          markdown={task.description || "*No description*"}
+          metadata={
+            <List.Item.Detail.Metadata>
+              <List.Item.Detail.Metadata.Label title="Team" text={task.teamName ?? "—"} />
+              <List.Item.Detail.Metadata.Label title="Status" text={task.stateName ?? "—"} />
+              <List.Item.Detail.Metadata.Label
+                title="Due Date"
+                text={task.dueDate ? new Date(task.dueDate).toLocaleDateString() : "—"}
+              />
+              <List.Item.Detail.Metadata.Label title="Priority" text={PRIORITY_NAMES[task.priority] ?? "No priority"} />
+              <List.Item.Detail.Metadata.Separator />
+              <List.Item.Detail.Metadata.TagList title="Labels">
+                {task.labelNames.length > 0 ? (
+                  task.labelNames.map((name) => <List.Item.Detail.Metadata.TagList.Item key={name} text={name} />)
+                ) : (
+                  <List.Item.Detail.Metadata.TagList.Item text="No labels" />
+                )}
+              </List.Item.Detail.Metadata.TagList>
+            </List.Item.Detail.Metadata>
+          }
+        />
+      }
       actions={
         <ActionPanel title="Linear Bridge">
           <TaskEditMenu task={task} refetchList={refetchList} />
