@@ -1,6 +1,8 @@
 import { Color, Icon, List } from "@raycast/api";
 import { useEffect, useState } from "react";
 import { refreshItemsFromLinear, retrieveCachedItems } from "./storage";
+import { groupTasksBySection } from "./task-order";
+import { TaskLineItem } from "./TaskLineItem";
 import { Task } from "./types";
 
 export default function Command() {
@@ -53,11 +55,30 @@ export default function Command() {
     );
   }
 
+  const sections = groupTasksBySection(tasks);
+
   return (
     <List isLoading={isLoading}>
-      {tasks.map((task) => (
-        <List.Item key={task.id} title={task.title} />
-      ))}
+      <List.Section title="⚠️ Outdated" subtitle={`${sections.outdated.length} tasks`}>
+        {sections.outdated.map((task) => (
+          <TaskLineItem key={task.id} task={task} />
+        ))}
+      </List.Section>
+      <List.Section title="📌 Pinned" subtitle={`${sections.pinned.length} tasks`}>
+        {sections.pinned.map((task) => (
+          <TaskLineItem key={task.id} task={task} />
+        ))}
+      </List.Section>
+      <List.Section title="📝 Incomplete" subtitle={`${sections.incomplete.length} tasks`}>
+        {sections.incomplete.map((task) => (
+          <TaskLineItem key={task.id} task={task} />
+        ))}
+      </List.Section>
+      <List.Section title="✅ Done" subtitle={`${sections.complete.length} tasks`}>
+        {sections.complete.map((task) => (
+          <TaskLineItem key={task.id} task={task} />
+        ))}
+      </List.Section>
     </List>
   );
 }
