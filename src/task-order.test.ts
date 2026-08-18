@@ -11,6 +11,7 @@ function task(id: string, overrides: Partial<Task> = {}): Task {
     stateType: "unstarted",
     labelIds: [],
     labelNames: [],
+    archivedLocally: false,
     ...overrides,
   };
 }

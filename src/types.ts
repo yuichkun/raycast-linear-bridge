@@ -27,4 +27,8 @@ export type Task = {
   labelIds: string[];
   labelNames: string[];
   url?: string;
+  // Optimistic local flag: set the instant an Archive action is taken, before the
+  // archiveIssue mutation has actually reached Linear. Once Linear confirms, the next
+  // pull simply omits the (now-archived) issue entirely and this flag becomes moot.
+  archivedLocally: boolean;
 };

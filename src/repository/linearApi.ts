@@ -156,6 +156,7 @@ function toTask(node: RawIssueNode, teamStateIds: Map<string, TeamStateIds>): Ta
     labelIds: node.labels.nodes.map((label) => label.id),
     labelNames: node.labels.nodes.map((label) => label.name),
     url: node.url,
+    archivedLocally: false,
   };
 }
 
@@ -171,4 +172,9 @@ export async function fetchAssignedIssues(): Promise<Task[]> {
 export async function updateIssueField(issueId: string, field: SyncOpField, value: unknown): Promise<void> {
   const client = getLinearClient();
   await client.updateIssue(issueId, { [field]: value });
+}
+
+export async function archiveIssue(issueId: string): Promise<void> {
+  const client = getLinearClient();
+  await client.archiveIssue(issueId);
 }

@@ -4,14 +4,27 @@ import { v4 as uuidv4 } from "uuid";
 // Field names correspond 1:1 to a single property on Task / IssueUpdateInput.
 export type SyncOpField = "stateId" | "title" | "dueDate" | "priority" | "description" | "labelIds";
 
-export type SyncOp = {
+export type UpdateFieldOp = {
   opId: string;
+  type: "updateField";
   issueId: string;
   field: SyncOpField;
   value: unknown;
   previousValue: unknown;
   createdAt: string;
 };
+
+// Archiving isn't a field update — Linear exposes it as its own mutation
+// (client.archiveIssue), so it gets its own op type rather than being shoehorned into
+// SyncOpField.
+export type ArchiveOp = {
+  opId: string;
+  type: "archive";
+  issueId: string;
+  createdAt: string;
+};
+
+export type SyncOp = UpdateFieldOp | ArchiveOp;
 
 const QUEUE_KEY = "syncQueue";
 
@@ -24,14 +37,28 @@ async function setQueue(queue: SyncOp[]): Promise<void> {
   await LocalStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
 }
 
-export async function enqueue(
+export async function enqueueFieldUpdate(
   issueId: string,
   field: SyncOpField,
   value: unknown,
   previousValue: unknown,
 ): Promise<void> {
   const queue = await getQueue();
-  queue.push({ opId: uuidv4(), issueId, field, value, previousValue, createdAt: new Date().toISOString() });
+  queue.push({
+    opId: uuidv4(),
+    type: "updateField",
+    issueId,
+    field,
+    value,
+    previousValue,
+    createdAt: new Date().toISOString(),
+  });
+  await setQueue(queue);
+}
+
+export async function enqueueArchive(issueId: string): Promise<void> {
+  const queue = await getQueue();
+  queue.push({ opId: uuidv4(), type: "archive", issueId, createdAt: new Date().toISOString() });
   await setQueue(queue);
 }
 

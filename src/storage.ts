@@ -1,6 +1,6 @@
 import { getCachedTasks, setCachedTasks } from "./repository/localCache";
 import { fetchAssignedIssues } from "./repository/linearApi";
-import { enqueue, getQueue, SyncOp, SyncOpField } from "./repository/syncQueue";
+import { enqueueArchive, enqueueFieldUpdate, getQueue, SyncOp, SyncOpField } from "./repository/syncQueue";
 import { Task } from "./types";
 
 export async function retrieveCachedItems(): Promise<Task[]> {
@@ -48,16 +48,62 @@ async function moveTaskToState(
   await setCachedTasks(updated);
 
   if (task.syncState === "synced") {
-    await enqueue(task.id, "stateId", targetStateId, previousStateId);
+    await enqueueFieldUpdate(task.id, "stateId", targetStateId, previousStateId);
+  }
+}
+
+export async function renameTask(taskId: string, title: string): Promise<void> {
+  await updateTaskField(taskId, "title", title);
+}
+
+export async function updateDueDate(taskId: string, dueDate: string | undefined): Promise<void> {
+  await updateTaskField(taskId, "dueDate", dueDate);
+}
+
+export async function updatePriority(taskId: string, priority: number): Promise<void> {
+  await updateTaskField(taskId, "priority", priority);
+}
+
+export async function updateLabels(taskId: string, labelIds: string[]): Promise<void> {
+  await updateTaskField(taskId, "labelIds", labelIds);
+}
+
+async function updateTaskField(taskId: string, field: SyncOpField, value: unknown): Promise<void> {
+  const cached = await getCachedTasks();
+  const task = cached.find((t) => t.id === taskId);
+  if (!task) return;
+
+  const previousValue = getFieldValue(task, field);
+  const updated = cached.map((t) => (t.id === taskId ? applyOpToTask(t, field, value) : t));
+  await setCachedTasks(updated);
+
+  if (task.syncState === "synced") {
+    await enqueueFieldUpdate(taskId, field, value, previousValue);
+  }
+}
+
+export async function archiveTask(taskId: string): Promise<void> {
+  const cached = await getCachedTasks();
+  const task = cached.find((t) => t.id === taskId);
+  if (!task || task.archivedLocally) return;
+
+  const updated = cached.map((t) => (t.id === taskId ? { ...t, archivedLocally: true } : t));
+  await setCachedTasks(updated);
+
+  if (task.syncState === "synced") {
+    await enqueueArchive(taskId);
   }
 }
 
 export async function rollbackPendingOp(op: SyncOp): Promise<void> {
   const cached = await getCachedTasks();
-  const updated = cached.map((task) =>
-    task.id === op.issueId ? applyOpToTask(task, op.field, op.previousValue) : task,
-  );
+  const updated = cached.map((task) => (task.id === op.issueId ? rollbackOpOnTask(task, op) : task));
   await setCachedTasks(updated);
+}
+
+function rollbackOpOnTask(task: Task, op: SyncOp): Task {
+  if (op.type === "updateField") return applyOpToTask(task, op.field, op.previousValue);
+  return { ...task, archivedLocally: false };
 }
 
 function applyPendingOpsToAll(tasks: Task[], queue: SyncOp[]): Task[] {
@@ -73,7 +119,11 @@ function applyPendingOpsToAll(tasks: Task[], queue: SyncOp[]): Task[] {
   return tasks.map((task) => {
     const pendingOps = pendingByIssue.get(task.id);
     if (!pendingOps) return task;
-    return pendingOps.reduce((acc, op) => applyOpToTask(acc, op.field, op.value), task);
+    return pendingOps.reduce(
+      (acc, op) =>
+        op.type === "updateField" ? applyOpToTask(acc, op.field, op.value) : { ...acc, archivedLocally: true },
+      task,
+    );
   });
 }
 
@@ -91,5 +141,22 @@ function applyOpToTask(task: Task, field: SyncOpField, value: unknown): Task {
       return { ...task, description: value as string | undefined };
     case "labelIds":
       return { ...task, labelIds: value as string[] };
+  }
+}
+
+function getFieldValue(task: Task, field: SyncOpField): unknown {
+  switch (field) {
+    case "stateId":
+      return task.stateId;
+    case "title":
+      return task.title;
+    case "dueDate":
+      return task.dueDate;
+    case "priority":
+      return task.priority;
+    case "description":
+      return task.description;
+    case "labelIds":
+      return task.labelIds;
   }
 }

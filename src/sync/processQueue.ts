@@ -1,4 +1,4 @@
-import { updateIssueField } from "../repository/linearApi";
+import { archiveIssue, updateIssueField } from "../repository/linearApi";
 import { dequeue, getQueue, SyncOp } from "../repository/syncQueue";
 import { rollbackPendingOp } from "../storage";
 
@@ -14,7 +14,11 @@ export async function processQueue(): Promise<ProcessQueueResult> {
 
   for (const op of queue) {
     try {
-      await updateIssueField(op.issueId, op.field, op.value);
+      if (op.type === "updateField") {
+        await updateIssueField(op.issueId, op.field, op.value);
+      } else {
+        await archiveIssue(op.issueId);
+      }
       await dequeue(op.opId);
     } catch (e) {
       if (isNetworkError(e)) {

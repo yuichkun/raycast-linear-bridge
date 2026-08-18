@@ -62,9 +62,13 @@ export default function Command() {
     });
   }, []);
 
-  const { searchText, setSearchText, filteredItems } = useSearch(tasks);
+  // Archived tasks stay in the cache (so a failed archive can be rolled back accurately)
+  // but are never shown, whether the archive is still pending sync or already confirmed.
+  const visibleTasks = tasks.filter((task) => !task.archivedLocally);
+
+  const { searchText, setSearchText, filteredItems } = useSearch(visibleTasks);
   const filteredTaskIds = new Set(filteredItems.map((task) => task.id));
-  const sections = groupTasksBySection(tasks);
+  const sections = groupTasksBySection(visibleTasks);
   const visibleSections = sections.map((section) => ({
     ...section,
     // Preserve todo-buddy's behavior: outdated tasks ignore the active search filter,
