@@ -1,13 +1,27 @@
 import { LocalStorage } from "@raycast/api";
 import { Task } from "../types";
 
-const CACHE_KEY = "tasks";
+const TASKS_CACHE_KEY = "tasks";
+const TEAM_LABELS_CACHE_KEY = "teamLabels";
 
 export async function getCachedTasks(): Promise<Task[]> {
-  const raw = await LocalStorage.getItem<string>(CACHE_KEY);
+  const raw = await LocalStorage.getItem<string>(TASKS_CACHE_KEY);
   return raw ? JSON.parse(raw) : [];
 }
 
 export async function setCachedTasks(tasks: Task[]): Promise<void> {
-  await LocalStorage.setItem(CACHE_KEY, JSON.stringify(tasks));
+  await LocalStorage.setItem(TASKS_CACHE_KEY, JSON.stringify(tasks));
+}
+
+export type CachedLabel = { id: string; name: string };
+
+export async function getCachedTeamLabels(): Promise<Map<string, CachedLabel[]>> {
+  const raw = await LocalStorage.getItem<string>(TEAM_LABELS_CACHE_KEY);
+  if (!raw) return new Map();
+  const entries: [string, CachedLabel[]][] = JSON.parse(raw);
+  return new Map(entries);
+}
+
+export async function setCachedTeamLabels(teamLabels: Map<string, CachedLabel[]>): Promise<void> {
+  await LocalStorage.setItem(TEAM_LABELS_CACHE_KEY, JSON.stringify([...teamLabels.entries()]));
 }

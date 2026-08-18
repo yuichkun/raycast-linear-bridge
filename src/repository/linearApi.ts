@@ -46,9 +46,16 @@ const ISSUES_QUERY = `
 // Note: `startWorkflowStateId` is NOT a queryable field on Team in Linear's schema — the
 // SDK's own Team.startWorkflowStateId getter derives it from a nested `startWorkflowState
 // { id }` object (confirmed by reading the compiled SDK's Team fragment). Query it nested.
-const TEAM_STATE_IDS_QUERY = `
-  query TeamStateIds {
-    teams(first: 50) {
+//
+// Also fetches each team's labels here (not lazily when opening the label-change form) so
+// that the offline-first guarantee holds for label editing too — the choices need to come
+// from the cache, not a live request. Connection sizes are kept modest (this workspace has
+// 6 teams / 8 states / 10 labels) since nested pagination args multiply the GraphQL query's
+// complexity score; a naive `first: 250` on multiple nested connections tripped the 10000
+// complexity ceiling in an earlier version of this query.
+const TEAM_METADATA_QUERY = `
+  query TeamMetadata {
+    teams(first: 20) {
       nodes {
         id
         startWorkflowState {
@@ -56,11 +63,17 @@ const TEAM_STATE_IDS_QUERY = `
           name
           type
         }
-        states(first: 50) {
+        states(first: 20) {
           nodes {
             id
             name
             type
+          }
+        }
+        labels(first: 50) {
+          nodes {
+            id
+            name
           }
         }
       }
@@ -88,27 +101,34 @@ type IssuesQueryResult = {
 };
 
 type RawState = { id: string; name: string; type: string };
+type RawLabel = { id: string; name: string };
 
-type TeamStateIdsQueryResult = {
+type TeamMetadataQueryResult = {
   teams: {
     nodes: {
       id: string;
       startWorkflowState: RawState | null;
       states: { nodes: RawState[] };
+      labels: { nodes: RawLabel[] };
     }[];
   };
 };
 
-type TeamStateIds = { doneState?: RawState; startState?: RawState };
+export type TeamMetadata = {
+  doneState?: RawState;
+  startState?: RawState;
+  labels: RawLabel[];
+};
 
-async function fetchTeamStateIds(client: LinearClient): Promise<Map<string, TeamStateIds>> {
-  const result = await client.client.request<TeamStateIdsQueryResult, Record<string, never>>(TEAM_STATE_IDS_QUERY);
-  const map = new Map<string, TeamStateIds>();
+async function fetchTeamMetadata(client: LinearClient): Promise<Map<string, TeamMetadata>> {
+  const result = await client.client.request<TeamMetadataQueryResult, Record<string, never>>(TEAM_METADATA_QUERY);
+  const map = new Map<string, TeamMetadata>();
   for (const team of result.teams.nodes) {
     const doneState = team.states.nodes.find((state) => state.type === "completed");
     map.set(team.id, {
       doneState,
       startState: team.startWorkflowState ?? undefined,
+      labels: team.labels.nodes,
     });
   }
   return map;
@@ -132,8 +152,8 @@ async function fetchAllIssueNodes(client: LinearClient, viewerId: string): Promi
   return nodes;
 }
 
-function toTask(node: RawIssueNode, teamStateIds: Map<string, TeamStateIds>): Task {
-  const ids = node.team ? teamStateIds.get(node.team.id) : undefined;
+function toTask(node: RawIssueNode, teamMetadata: Map<string, TeamMetadata>): Task {
+  const metadata = node.team ? teamMetadata.get(node.team.id) : undefined;
 
   return {
     id: node.id,
@@ -146,11 +166,11 @@ function toTask(node: RawIssueNode, teamStateIds: Map<string, TeamStateIds>): Ta
     stateName: node.state?.name,
     stateType: node.state?.type as WorkflowStateType | undefined,
     statePosition: node.state?.position,
-    doneStateId: ids?.doneState?.id,
-    doneStateName: ids?.doneState?.name,
-    startStateId: ids?.startState?.id,
-    startStateName: ids?.startState?.name,
-    startStateType: ids?.startState?.type as WorkflowStateType | undefined,
+    doneStateId: metadata?.doneState?.id,
+    doneStateName: metadata?.doneState?.name,
+    startStateId: metadata?.startState?.id,
+    startStateName: metadata?.startState?.name,
+    startStateType: metadata?.startState?.type as WorkflowStateType | undefined,
     teamId: node.team?.id,
     teamName: node.team?.name,
     labelIds: node.labels.nodes.map((label) => label.id),
@@ -160,13 +180,24 @@ function toTask(node: RawIssueNode, teamStateIds: Map<string, TeamStateIds>): Ta
   };
 }
 
-export async function fetchAssignedIssues(): Promise<Task[]> {
+export type FetchAssignedIssuesResult = {
+  tasks: Task[];
+  teamLabels: Map<string, RawLabel[]>;
+};
+
+export async function fetchAssignedIssues(): Promise<FetchAssignedIssuesResult> {
   const client = getLinearClient();
   const viewer = await client.viewer;
 
-  const [teamStateIds, nodes] = await Promise.all([fetchTeamStateIds(client), fetchAllIssueNodes(client, viewer.id)]);
+  const [teamMetadata, nodes] = await Promise.all([fetchTeamMetadata(client), fetchAllIssueNodes(client, viewer.id)]);
 
-  return nodes.map((node) => toTask(node, teamStateIds));
+  const tasks = nodes.map((node) => toTask(node, teamMetadata));
+  const teamLabels = new Map<string, RawLabel[]>();
+  for (const [teamId, metadata] of teamMetadata) {
+    teamLabels.set(teamId, metadata.labels);
+  }
+
+  return { tasks, teamLabels };
 }
 
 export async function updateIssueField(issueId: string, field: SyncOpField, value: unknown): Promise<void> {
