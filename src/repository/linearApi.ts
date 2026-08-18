@@ -45,8 +45,16 @@ async function fetchAllAssignedIssues(client: LinearClient): Promise<Issue[]> {
   const issues: Issue[] = [];
   let after: string | undefined;
 
+  // Deliberately query via `client.issues({filter: {assignee: ...}})` rather than
+  // `viewer.assignedIssues()`: the latter resolves through a `user(id: ...) { assignedIssues }`
+  // GraphQL path internally, which returned a different (and incomplete) result set than the
+  // direct `issues` query — e.g. an in-progress issue was silently missing from the response.
   for (;;) {
-    const page = await viewer.assignedIssues({ first: 100, after });
+    const page = await client.issues({
+      filter: { assignee: { id: { eq: viewer.id } } },
+      first: 100,
+      after,
+    });
     issues.push(...page.nodes);
     if (!page.pageInfo.hasNextPage) break;
     after = page.pageInfo.endCursor ?? undefined;
