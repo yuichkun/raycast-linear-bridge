@@ -1,6 +1,6 @@
 import { LinearClient } from "@linear/sdk";
 import { getLinearClient } from "../linear/client";
-import { Task, WorkflowStateType } from "../types";
+import { CreateIssueInput, Task, WorkflowStateType } from "../types";
 import { SyncOpField } from "./syncQueue";
 
 // Issue.state / Issue.team / Issue.labels() on the SDK's high-level Issue class each
@@ -58,6 +58,7 @@ const TEAM_METADATA_QUERY = `
     teams(first: 20) {
       nodes {
         id
+        name
         startWorkflowState {
           id
           name
@@ -107,6 +108,7 @@ type TeamMetadataQueryResult = {
   teams: {
     nodes: {
       id: string;
+      name: string;
       startWorkflowState: RawState | null;
       states: { nodes: RawState[] };
       labels: { nodes: RawLabel[] };
@@ -115,6 +117,7 @@ type TeamMetadataQueryResult = {
 };
 
 export type TeamMetadata = {
+  name: string;
   doneState?: RawState;
   startState?: RawState;
   labels: RawLabel[];
@@ -126,6 +129,7 @@ async function fetchTeamMetadata(client: LinearClient): Promise<Map<string, Team
   for (const team of result.teams.nodes) {
     const doneState = team.states.nodes.find((state) => state.type === "completed");
     map.set(team.id, {
+      name: team.name,
       doneState,
       startState: team.startWorkflowState ?? undefined,
       labels: team.labels.nodes,
@@ -180,9 +184,12 @@ function toTask(node: RawIssueNode, teamMetadata: Map<string, TeamMetadata>): Ta
   };
 }
 
+export type TeamOption = { id: string; name: string };
+
 export type FetchAssignedIssuesResult = {
   tasks: Task[];
   teamLabels: Map<string, RawLabel[]>;
+  teams: TeamOption[];
 };
 
 export async function fetchAssignedIssues(): Promise<FetchAssignedIssuesResult> {
@@ -193,11 +200,13 @@ export async function fetchAssignedIssues(): Promise<FetchAssignedIssuesResult> 
 
   const tasks = nodes.map((node) => toTask(node, teamMetadata));
   const teamLabels = new Map<string, RawLabel[]>();
+  const teams: TeamOption[] = [];
   for (const [teamId, metadata] of teamMetadata) {
     teamLabels.set(teamId, metadata.labels);
+    teams.push({ id: teamId, name: metadata.name });
   }
 
-  return { tasks, teamLabels };
+  return { tasks, teamLabels, teams };
 }
 
 export async function updateIssueField(issueId: string, field: SyncOpField, value: unknown): Promise<void> {
@@ -208,4 +217,12 @@ export async function updateIssueField(issueId: string, field: SyncOpField, valu
 export async function archiveIssue(issueId: string): Promise<void> {
   const client = getLinearClient();
   await client.archiveIssue(issueId);
+}
+
+export async function createIssue(input: CreateIssueInput): Promise<string> {
+  const client = getLinearClient();
+  const payload = await client.createIssue(input);
+  const issue = await payload.issue;
+  if (!issue) throw new Error("Linear did not return the created issue");
+  return issue.id;
 }

@@ -1,3 +1,4 @@
+import { v4 as uuidv4 } from "uuid";
 import {
   CachedLabel,
   getCachedTasks,
@@ -6,8 +7,17 @@ import {
   setCachedTeamLabels,
 } from "./repository/localCache";
 import { fetchAssignedIssues } from "./repository/linearApi";
-import { enqueueArchive, enqueueFieldUpdate, getQueue, SyncOp, SyncOpField } from "./repository/syncQueue";
-import { Task } from "./types";
+import {
+  ArchiveOp,
+  enqueueArchive,
+  enqueueCreate,
+  enqueueFieldUpdate,
+  getQueue,
+  SyncOp,
+  SyncOpField,
+  UpdateFieldOp,
+} from "./repository/syncQueue";
+import { CreateIssueInput, Task } from "./types";
 
 export async function retrieveCachedItems(): Promise<Task[]> {
   return getCachedTasks();
@@ -110,13 +120,111 @@ export async function archiveTask(taskId: string): Promise<void> {
   }
 }
 
+export type CreateTaskInput = {
+  title: string;
+  saveToLinear: boolean;
+  teamId?: string;
+  teamName?: string;
+  description?: string;
+  dueDate?: string;
+  priority?: number;
+  labelIds?: string[];
+  labelNames?: string[];
+};
+
+// Returns the tempId the task was created with locally. Callers that need to follow the
+// task after it's promoted to a real Linear issue (e.g. to keep it selected) should track
+// this id and watch for it disappearing from the cache — see resolveCreatedTask.
+export async function createTask(input: CreateTaskInput): Promise<string> {
+  const tempId = uuidv4();
+  const cached = await getCachedTasks();
+
+  const task: Task = {
+    id: tempId,
+    syncState: input.saveToLinear ? "pendingCreate" : "local",
+    title: input.title,
+    description: input.description,
+    dueDate: input.dueDate,
+    priority: input.priority ?? 0,
+    // No real Linear state exists yet — "New" is a placeholder label so the task lands in
+    // a clearly-named section instead of a stray "Unknown" one (groupTasksBySection falls
+    // back to task.stateName when stateId/stateName aren't set).
+    stateName: "New",
+    teamId: input.teamId,
+    teamName: input.teamName,
+    labelIds: input.labelIds ?? [],
+    labelNames: input.labelNames ?? [],
+    archivedLocally: false,
+  };
+
+  await setCachedTasks([...cached, task]);
+
+  if (input.saveToLinear && input.teamId) {
+    const createInput: CreateIssueInput = {
+      teamId: input.teamId,
+      title: input.title,
+      description: input.description,
+      dueDate: input.dueDate,
+      priority: input.priority,
+      labelIds: input.labelIds,
+    };
+    await enqueueCreate(tempId, createInput);
+  }
+
+  return tempId;
+}
+
+// Promotes a local-only task to a pendingCreate one, reusing the exact same tempId ->
+// real-id flow as createTask(saveToLinear: true) — from here on it's indistinguishable
+// from a task that was saved to Linear from the start.
+export async function promoteToLinear(taskId: string, teamId: string, teamName: string): Promise<void> {
+  const cached = await getCachedTasks();
+  const task = cached.find((t) => t.id === taskId);
+  if (!task || task.syncState !== "local") return;
+
+  const updated = cached.map((t) =>
+    t.id === taskId ? { ...t, syncState: "pendingCreate" as const, teamId, teamName } : t,
+  );
+  await setCachedTasks(updated);
+
+  const createInput: CreateIssueInput = {
+    teamId,
+    title: task.title,
+    description: task.description,
+    dueDate: task.dueDate,
+    priority: task.priority,
+    labelIds: task.labelIds,
+  };
+  await enqueueCreate(taskId, createInput);
+}
+
+// Called by processQueue once Linear confirms a CreateIssueOp: swaps the tempId for the
+// real issue id and flips syncState so the task is now treated as an ordinary synced one
+// (eligible for field updates/archive to actually reach Linear, included in the next
+// pull's diffing, etc).
+export async function resolveCreatedTask(tempId: string, realId: string): Promise<void> {
+  const cached = await getCachedTasks();
+  const updated = cached.map((task) =>
+    task.id === tempId ? { ...task, id: realId, syncState: "synced" as const } : task,
+  );
+  await setCachedTasks(updated);
+}
+
 export async function rollbackPendingOp(op: SyncOp): Promise<void> {
+  if (op.type === "create") {
+    // Linear rejected the creation — the local-only placeholder never became real, so
+    // remove it entirely instead of leaving a phantom task with no way to retry it.
+    const cached = await getCachedTasks();
+    await setCachedTasks(cached.filter((task) => task.id !== op.issueId));
+    return;
+  }
+
   const cached = await getCachedTasks();
   const updated = cached.map((task) => (task.id === op.issueId ? rollbackOpOnTask(task, op) : task));
   await setCachedTasks(updated);
 }
 
-function rollbackOpOnTask(task: Task, op: SyncOp): Task {
+function rollbackOpOnTask(task: Task, op: UpdateFieldOp | ArchiveOp): Task {
   if (op.type === "updateField") return applyOpToTask(task, op.field, op.previousValue);
   return { ...task, archivedLocally: false };
 }
@@ -134,6 +242,8 @@ function applyPendingOpsToAll(tasks: Task[], queue: SyncOp[]): Task[] {
   return tasks.map((task) => {
     const pendingOps = pendingByIssue.get(task.id);
     if (!pendingOps) return task;
+    // A "create" op never matches here: its issueId is a tempId that `tasks` (fetched
+    // fresh from Linear) can't contain yet, so this only ever sees updateField/archive.
     return pendingOps.reduce(
       (acc, op) =>
         op.type === "updateField" ? applyOpToTask(acc, op.field, op.value) : { ...acc, archivedLocally: true },

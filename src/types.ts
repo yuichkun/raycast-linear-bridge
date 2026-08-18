@@ -32,3 +32,15 @@ export type Task = {
   // pull simply omits the (now-archived) issue entirely and this flag becomes moot.
   archivedLocally: boolean;
 };
+
+// Shared between repository/linearApi.ts and repository/syncQueue.ts — defined here
+// (rather than in linearApi.ts) so syncQueue.ts can reference it without creating a
+// dependency cycle (linearApi.ts already imports SyncOpField from syncQueue.ts).
+export type CreateIssueInput = {
+  teamId: string;
+  title: string;
+  description?: string;
+  dueDate?: string;
+  priority?: number;
+  labelIds?: string[];
+};

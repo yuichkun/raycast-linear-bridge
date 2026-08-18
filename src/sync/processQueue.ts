@@ -1,6 +1,6 @@
-import { archiveIssue, updateIssueField } from "../repository/linearApi";
+import { archiveIssue, createIssue, updateIssueField } from "../repository/linearApi";
 import { dequeue, getQueue, SyncOp } from "../repository/syncQueue";
-import { rollbackPendingOp } from "../storage";
+import { resolveCreatedTask, rollbackPendingOp } from "../storage";
 
 export type ProcessQueueResult = {
   networkUnreachable: boolean;
@@ -16,8 +16,11 @@ export async function processQueue(): Promise<ProcessQueueResult> {
     try {
       if (op.type === "updateField") {
         await updateIssueField(op.issueId, op.field, op.value);
-      } else {
+      } else if (op.type === "archive") {
         await archiveIssue(op.issueId);
+      } else {
+        const realId = await createIssue(op.input);
+        await resolveCreatedTask(op.issueId, realId);
       }
       await dequeue(op.opId);
     } catch (e) {
