@@ -6,6 +6,7 @@ import { Task } from "../types";
 import { ChangeLabels } from "./ChangeLabels";
 import { ChangePriority } from "./ChangePriority";
 import { EditDescription } from "./EditDescription";
+import { PromoteToLinear } from "./PromoteToLinear";
 import { RenameTask } from "./RenameTask";
 
 type Props = {
@@ -14,6 +15,11 @@ type Props = {
 };
 
 export const TaskEditMenu: FC<Props> = ({ task, refetchList }) => {
+  // A local-only task has no Linear team/state, so state transitions and team-scoped
+  // label selection are meaningless (they'd silently no-op) — hide them and offer
+  // Promote to Linear instead.
+  const isLocalOnly = task.syncState === "local";
+
   const handleComplete = async () => {
     try {
       await markTaskComplete(task.id);
@@ -72,24 +78,39 @@ export const TaskEditMenu: FC<Props> = ({ task, refetchList }) => {
 
   return (
     <ActionPanel.Submenu title="Edit">
-      <Action
-        title="Mark as Complete"
-        icon={Icon.CheckCircle}
-        shortcut={{
-          macOS: { modifiers: ["cmd", "shift"], key: "c" },
-          Windows: { modifiers: ["ctrl", "shift"], key: "c" },
-        }}
-        onAction={handleComplete}
-      />
-      <Action
-        title="Mark as in Progress"
-        icon={Icon.Circle}
-        shortcut={{
-          macOS: { modifiers: ["cmd", "shift"], key: "p" },
-          Windows: { modifiers: ["ctrl", "shift"], key: "p" },
-        }}
-        onAction={handleMarkInProgress}
-      />
+      {isLocalOnly && (
+        <Action.Push
+          title="Promote to Linear"
+          icon={Icon.Upload}
+          shortcut={{
+            macOS: { modifiers: ["cmd", "shift"], key: "u" },
+            Windows: { modifiers: ["ctrl", "shift"], key: "u" },
+          }}
+          target={<PromoteToLinear task={task} refetchList={refetchList} />}
+        />
+      )}
+      {!isLocalOnly && (
+        <Action
+          title="Mark as Complete"
+          icon={Icon.CheckCircle}
+          shortcut={{
+            macOS: { modifiers: ["cmd", "shift"], key: "c" },
+            Windows: { modifiers: ["ctrl", "shift"], key: "c" },
+          }}
+          onAction={handleComplete}
+        />
+      )}
+      {!isLocalOnly && (
+        <Action
+          title="Mark as in Progress"
+          icon={Icon.Circle}
+          shortcut={{
+            macOS: { modifiers: ["cmd", "shift"], key: "p" },
+            Windows: { modifiers: ["ctrl", "shift"], key: "p" },
+          }}
+          onAction={handleMarkInProgress}
+        />
+      )}
       <Action.PickDate
         title="Set Date"
         type={Action.PickDate.Type.Date}
@@ -117,15 +138,17 @@ export const TaskEditMenu: FC<Props> = ({ task, refetchList }) => {
         }}
         target={<EditDescription task={task} refetchList={refetchList} />}
       />
-      <Action.Push
-        title="Change Labels"
-        icon={Icon.Tag}
-        shortcut={{
-          macOS: { modifiers: ["cmd", "shift"], key: "t" },
-          Windows: { modifiers: ["ctrl", "shift"], key: "t" },
-        }}
-        target={<ChangeLabels task={task} refetchList={refetchList} />}
-      />
+      {!isLocalOnly && (
+        <Action.Push
+          title="Change Labels"
+          icon={Icon.Tag}
+          shortcut={{
+            macOS: { modifiers: ["cmd", "shift"], key: "t" },
+            Windows: { modifiers: ["ctrl", "shift"], key: "t" },
+          }}
+          target={<ChangeLabels task={task} refetchList={refetchList} />}
+        />
+      )}
       <Action.Push
         title="Change Priority"
         icon={Icon.Stars}

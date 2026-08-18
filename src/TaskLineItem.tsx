@@ -1,4 +1,4 @@
-import { ActionPanel, List } from "@raycast/api";
+import { ActionPanel, Color, Icon, List } from "@raycast/api";
 import { FC } from "react";
 import { TaskEditMenu } from "./actions/edit";
 import { PRIORITY_COLORS, PRIORITY_ICONS, PRIORITY_NAMES } from "./constants";
@@ -17,10 +17,12 @@ export const TaskLineItem: FC<Props> = ({ task, refetchList }) => {
   // place left to see what state an overdue task is actually in.
   const showStateTag = classifyTask(task) === "outdated";
   const priorityIcon = PRIORITY_ICONS[task.priority];
+  const isLocalOnly = task.syncState === "local";
 
   return (
     <List.Item
       id={task.id}
+      icon={isLocalOnly ? { source: Icon.HardDrive, tintColor: Color.SecondaryText } : undefined}
       title={task.title}
       accessories={[
         { icon: priorityIcon ? { source: priorityIcon, tintColor: PRIORITY_COLORS[task.priority] } : null },
@@ -33,6 +35,7 @@ export const TaskLineItem: FC<Props> = ({ task, refetchList }) => {
           markdown={task.description || "*No description*"}
           metadata={
             <List.Item.Detail.Metadata>
+              {isLocalOnly && <List.Item.Detail.Metadata.Label title="Sync" text="Local only — not saved to Linear" />}
               <List.Item.Detail.Metadata.Label title="Team" text={task.teamName ?? "—"} />
               <List.Item.Detail.Metadata.Label title="Status" text={task.stateName ?? "—"} />
               <List.Item.Detail.Metadata.Label
