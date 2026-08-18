@@ -4,7 +4,7 @@ export interface Preferences {
 
 export type SyncState = "local" | "pendingCreate" | "synced";
 
-export type WorkflowStateType = "triage" | "backlog" | "unstarted" | "started" | "completed" | "canceled";
+export type WorkflowStateType = "triage" | "backlog" | "unstarted" | "started" | "completed" | "canceled" | "duplicate";
 
 export type Task = {
   id: string;
