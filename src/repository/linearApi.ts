@@ -53,10 +53,13 @@ const TEAM_STATE_IDS_QUERY = `
         id
         startWorkflowState {
           id
+          name
+          type
         }
         states(first: 50) {
           nodes {
             id
+            name
             type
           }
         }
@@ -84,17 +87,19 @@ type IssuesQueryResult = {
   };
 };
 
+type RawState = { id: string; name: string; type: string };
+
 type TeamStateIdsQueryResult = {
   teams: {
     nodes: {
       id: string;
-      startWorkflowState: { id: string } | null;
-      states: { nodes: { id: string; type: string }[] };
+      startWorkflowState: RawState | null;
+      states: { nodes: RawState[] };
     }[];
   };
 };
 
-type TeamStateIds = { doneStateId?: string; startStateId?: string };
+type TeamStateIds = { doneState?: RawState; startState?: RawState };
 
 async function fetchTeamStateIds(client: LinearClient): Promise<Map<string, TeamStateIds>> {
   const result = await client.client.request<TeamStateIdsQueryResult, Record<string, never>>(TEAM_STATE_IDS_QUERY);
@@ -102,8 +107,8 @@ async function fetchTeamStateIds(client: LinearClient): Promise<Map<string, Team
   for (const team of result.teams.nodes) {
     const doneState = team.states.nodes.find((state) => state.type === "completed");
     map.set(team.id, {
-      doneStateId: doneState?.id,
-      startStateId: team.startWorkflowState?.id,
+      doneState,
+      startState: team.startWorkflowState ?? undefined,
     });
   }
   return map;
@@ -141,8 +146,11 @@ function toTask(node: RawIssueNode, teamStateIds: Map<string, TeamStateIds>): Ta
     stateName: node.state?.name,
     stateType: node.state?.type as WorkflowStateType | undefined,
     statePosition: node.state?.position,
-    doneStateId: ids?.doneStateId,
-    startStateId: ids?.startStateId,
+    doneStateId: ids?.doneState?.id,
+    doneStateName: ids?.doneState?.name,
+    startStateId: ids?.startState?.id,
+    startStateName: ids?.startState?.name,
+    startStateType: ids?.startState?.type as WorkflowStateType | undefined,
     teamId: node.team?.id,
     teamName: node.team?.name,
     labelIds: node.labels.nodes.map((label) => label.id),

@@ -21,16 +21,34 @@ export async function refreshItemsFromLinear(): Promise<Task[]> {
 export async function markTaskComplete(taskId: string): Promise<void> {
   const cached = await getCachedTasks();
   const task = cached.find((t) => t.id === taskId);
-  if (!task || !task.doneStateId || task.stateType === "completed") return;
+  if (!task) return;
+  await moveTaskToState(cached, task, task.doneStateId, task.doneStateName, "completed");
+}
+
+export async function markTaskInProgress(taskId: string): Promise<void> {
+  const cached = await getCachedTasks();
+  const task = cached.find((t) => t.id === taskId);
+  if (!task) return;
+  await moveTaskToState(cached, task, task.startStateId, task.startStateName, task.startStateType);
+}
+
+async function moveTaskToState(
+  cached: Task[],
+  task: Task,
+  targetStateId: string | undefined,
+  targetStateName: string | undefined,
+  targetStateType: Task["stateType"],
+): Promise<void> {
+  if (!targetStateId || task.stateId === targetStateId) return;
 
   const previousStateId = task.stateId;
   const updated = cached.map((t) =>
-    t.id === taskId ? { ...t, stateId: task.doneStateId, stateType: "completed" as const } : t,
+    t.id === task.id ? { ...t, stateId: targetStateId, stateName: targetStateName, stateType: targetStateType } : t,
   );
   await setCachedTasks(updated);
 
   if (task.syncState === "synced") {
-    await enqueue(taskId, "stateId", task.doneStateId, previousStateId);
+    await enqueue(task.id, "stateId", targetStateId, previousStateId);
   }
 }
 

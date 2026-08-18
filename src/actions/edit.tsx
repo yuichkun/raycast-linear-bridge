@@ -1,6 +1,6 @@
 import { Action, ActionPanel, Icon, showToast, Toast } from "@raycast/api";
 import { FC } from "react";
-import { markTaskComplete } from "../storage";
+import { markTaskComplete, markTaskInProgress } from "../storage";
 import { Task } from "../types";
 
 type Props = {
@@ -23,6 +23,20 @@ export const TaskEditMenu: FC<Props> = ({ task, refetchList }) => {
     }
   };
 
+  const handleMarkInProgress = async () => {
+    try {
+      await markTaskInProgress(task.id);
+      refetchList();
+      await showToast({ style: Toast.Style.Success, title: "Marked task as in progress", message: task.title });
+    } catch (e) {
+      await showToast({
+        style: Toast.Style.Failure,
+        title: "Failed to mark task as in progress",
+        message: e instanceof Error ? e.message : undefined,
+      });
+    }
+  };
+
   return (
     <ActionPanel.Submenu title="Edit">
       <Action
@@ -33,6 +47,15 @@ export const TaskEditMenu: FC<Props> = ({ task, refetchList }) => {
           Windows: { modifiers: ["ctrl", "shift"], key: "c" },
         }}
         onAction={handleComplete}
+      />
+      <Action
+        title="Mark as in Progress"
+        icon={Icon.Circle}
+        shortcut={{
+          macOS: { modifiers: ["cmd", "shift"], key: "p" },
+          Windows: { modifiers: ["ctrl", "shift"], key: "p" },
+        }}
+        onAction={handleMarkInProgress}
       />
     </ActionPanel.Submenu>
   );
