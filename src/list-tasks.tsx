@@ -11,6 +11,7 @@ export default function Command() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string>();
+  const [isShowingDetail, setIsShowingDetail] = useState(true);
 
   async function refetchList() {
     // Fire-and-forget: every mutation (Mark Complete, Rename, ...) calls refetchList()
@@ -84,7 +85,7 @@ export default function Command() {
   return (
     <List
       isLoading={isLoading}
-      isShowingDetail
+      isShowingDetail={isShowingDetail}
       searchText={searchText}
       onSearchTextChange={setSearchText}
       searchBarPlaceholder="Search by anything. Task title, label, team, date, etc."
@@ -92,7 +93,13 @@ export default function Command() {
       {visibleSections.map((section) => (
         <List.Section key={section.key} title={section.title} subtitle={`${section.tasks.length} tasks`}>
           {section.tasks.map((task) => (
-            <TaskLineItem key={task.id} task={task} refetchList={refetchList} />
+            <TaskLineItem
+              key={task.id}
+              task={task}
+              refetchList={refetchList}
+              isShowingDetail={isShowingDetail}
+              onToggleDetail={() => setIsShowingDetail((current) => !current)}
+            />
           ))}
         </List.Section>
       ))}

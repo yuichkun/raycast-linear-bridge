@@ -1,5 +1,6 @@
-import { ActionPanel, Color, Icon, List } from "@raycast/api";
+import { Action, ActionPanel, Color, Icon, List } from "@raycast/api";
 import { FC } from "react";
+import { TaskDetailView } from "./actions/TaskDetailView";
 import { TaskEditMenu } from "./actions/edit";
 import { PRIORITY_COLORS, PRIORITY_ICONS, PRIORITY_NAMES } from "./constants";
 import { classifyTask } from "./task-order";
@@ -8,9 +9,11 @@ import { Task } from "./types";
 type Props = {
   task: Task;
   refetchList: () => void;
+  isShowingDetail: boolean;
+  onToggleDetail: () => void;
 };
 
-export const TaskLineItem: FC<Props> = ({ task, refetchList }) => {
+export const TaskLineItem: FC<Props> = ({ task, refetchList, isShowingDetail, onToggleDetail }) => {
   // Every other section's title already names the state (dynamic per-state sections,
   // or the fixed "Done"), so a repeated tag would be redundant. Outdated is the
   // exception: it groups tasks by due date regardless of state, so the tag is the only
@@ -58,6 +61,24 @@ export const TaskLineItem: FC<Props> = ({ task, refetchList }) => {
       actions={
         <ActionPanel title="Linear Bridge">
           <TaskEditMenu task={task} refetchList={refetchList} />
+          <Action.Push
+            title="View Full Details"
+            icon={Icon.Maximize}
+            shortcut={{
+              macOS: { modifiers: ["cmd", "shift"], key: "v" },
+              Windows: { modifiers: ["ctrl", "shift"], key: "v" },
+            }}
+            target={<TaskDetailView task={task} />}
+          />
+          <Action
+            title={isShowingDetail ? "Hide Details" : "Show Details"}
+            icon={Icon.Sidebar}
+            shortcut={{
+              macOS: { modifiers: ["cmd"], key: "d" },
+              Windows: { modifiers: ["ctrl"], key: "d" },
+            }}
+            onAction={onToggleDetail}
+          />
         </ActionPanel>
       }
     />

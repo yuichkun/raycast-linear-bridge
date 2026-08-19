@@ -41,7 +41,10 @@ All shortcuts use `⌘⇧` on macOS / `Ctrl⇧` on Windows, matching Todo Buddy'
 | `T` | Change Labels |
 | `L` | Change Priority |
 | `U` | Promote to Linear (local-only tasks only) |
+| `V` | View Full Details (a full-screen detail page, separate from the inline detail panel) |
 | `⌫` (Delete) | Archive Task |
+
+`⌘D` (no Shift) toggles the inline detail panel next to the list on and off.
 
 ## Local-only tasks
 
