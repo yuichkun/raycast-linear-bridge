@@ -1,5 +1,5 @@
-import { LocalStorage } from "@raycast/api";
 import { v4 as uuidv4 } from "uuid";
+import { readJsonFile, writeJsonFile } from "./fileStore";
 import { CreateIssueInput } from "../types";
 
 // Field names correspond 1:1 to a single property on Task / IssueUpdateInput.
@@ -39,15 +39,19 @@ export type CreateIssueOp = {
 
 export type SyncOp = UpdateFieldOp | ArchiveOp | CreateIssueOp;
 
-const QUEUE_KEY = "syncQueue";
+// Pending ops are irreplaceable the same way local-only tasks are: losing a queued create/
+// update/archive silently means "I did this but Linear never found out" — so this lives in
+// environment.supportPath rather than LocalStorage too. See fileStore.ts and
+// localCache.ts's tasks cache for the full reasoning.
+const QUEUE_FILE = "syncQueue.json";
+const QUEUE_LEGACY_KEY = "syncQueue";
 
 export async function getQueue(): Promise<SyncOp[]> {
-  const raw = await LocalStorage.getItem<string>(QUEUE_KEY);
-  return raw ? JSON.parse(raw) : [];
+  return readJsonFile<SyncOp[]>(QUEUE_FILE, [], QUEUE_LEGACY_KEY);
 }
 
 async function setQueue(queue: SyncOp[]): Promise<void> {
-  await LocalStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
+  await writeJsonFile(QUEUE_FILE, queue);
 }
 
 export async function enqueueFieldUpdate(
