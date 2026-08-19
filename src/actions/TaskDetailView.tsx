@@ -1,19 +1,26 @@
-import { Detail } from "@raycast/api";
+import { ActionPanel, Detail } from "@raycast/api";
 import { FC } from "react";
 import { PRIORITY_NAMES } from "../constants";
 import { Task } from "../types";
+import { TaskEditMenu } from "./edit";
 
 type Props = {
   task: Task;
+  refetchList: () => void;
 };
 
-export const TaskDetailView: FC<Props> = ({ task }) => {
+export const TaskDetailView: FC<Props> = ({ task, refetchList }) => {
   const isLocalOnly = task.syncState === "local";
 
   return (
     <Detail
       navigationTitle={task.title}
       markdown={task.description || "*No description*"}
+      actions={
+        <ActionPanel title="Linear Bridge">
+          <TaskEditMenu task={task} refetchList={refetchList} />
+        </ActionPanel>
+      }
       metadata={
         <Detail.Metadata>
           {isLocalOnly && <Detail.Metadata.Label title="Sync" text="Local only — not saved to Linear" />}

@@ -68,7 +68,7 @@ export const TaskLineItem: FC<Props> = ({ task, refetchList, isShowingDetail, on
               macOS: { modifiers: ["cmd", "shift"], key: "v" },
               Windows: { modifiers: ["ctrl", "shift"], key: "v" },
             }}
-            target={<TaskDetailView task={task} />}
+            target={<TaskDetailView task={task} refetchList={refetchList} />}
           />
           <Action
             title={isShowingDetail ? "Hide Details" : "Show Details"}

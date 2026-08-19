@@ -11,7 +11,9 @@ export default function Command() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string>();
-  const [isShowingDetail, setIsShowingDetail] = useState(true);
+  // Off by default: a full detail pane next to every row crowds the list when you're just
+  // scanning titles. ⌘D turns it on for whoever wants it open persistently.
+  const [isShowingDetail, setIsShowingDetail] = useState(false);
 
   async function refetchList() {
     // Fire-and-forget: every mutation (Mark Complete, Rename, ...) calls refetchList()
