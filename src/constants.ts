@@ -20,12 +20,16 @@ export const PRIORITY_NAMES: Record<number, string> = {
 
 // No priority (0) is intentionally absent — it's the default and should stay invisible
 // in the list, per the design decision to keep priority a minor, optional attribute
-// rather than something every task carries.
+// rather than something every task carries. High/Medium/Low use signal-strength bars
+// (more bars = more important) — the same convention Linear's own app uses — instead of
+// chevrons/minus signs that don't read as a priority scale at a glance. Urgent stays a
+// distinct exclamation mark rather than "the strongest bar," matching Linear's own
+// treatment of it as an out-of-band emergency level, not the top of the bar scale.
 export const PRIORITY_ICONS: Record<number, Icon> = {
   1: Icon.ExclamationMark,
-  2: Icon.ChevronUp,
-  3: Icon.Minus,
-  4: Icon.ChevronDown,
+  2: Icon.Signal3,
+  3: Icon.Signal2,
+  4: Icon.Signal1,
 };
 
 export const PRIORITY_COLORS: Record<number, Color> = {
