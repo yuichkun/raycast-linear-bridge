@@ -67,7 +67,13 @@ async function moveTaskToState(
   targetStateName: string | undefined,
   targetStateType: Task["stateType"],
 ): Promise<void> {
-  if (!targetStateId || task.stateId === targetStateId) return;
+  // A missing target state means Linear has nothing configured for this transition (e.g.
+  // no start/done state resolved for the task's team) — this must surface as a failure, not
+  // a silent no-op that lets the caller report success for a change that never happened.
+  if (!targetStateId) {
+    throw new Error(`No matching state found in Linear for "${task.title}"'s team`);
+  }
+  if (task.stateId === targetStateId) return;
 
   const previousStateId = task.stateId;
   const updated = cached.map((t) =>
