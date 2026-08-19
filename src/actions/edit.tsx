@@ -15,17 +15,27 @@ export const TaskEditMenu: FC<Props> = ({ task, refetchList }) => {
   // A local-only task has no Linear team/state, so state transitions are meaningless
   // (they'd silently no-op) — hide them and offer Promote to Linear instead.
   const isLocalOnly = task.syncState === "local";
+  const isDone = task.stateType === "completed";
 
+  // A toggle, not a one-way action: pressing Complete again on an already-Done task means
+  // "I need to reopen this," and In Progress is a more useful landing spot than Backlog —
+  // you're the one reopening it, so you're presumably about to work on it.
   const handleComplete = async () => {
     try {
-      await markTaskComplete(task.id);
-      refetchList();
-      await showToast({ style: Toast.Style.Success, title: "Marked task as complete", message: task.title });
-      await playSound("todo.mp3");
+      if (isDone) {
+        await markTaskInProgress(task.id);
+        refetchList();
+        await showToast({ style: Toast.Style.Success, title: "Marked task as in progress", message: task.title });
+      } else {
+        await markTaskComplete(task.id);
+        refetchList();
+        await showToast({ style: Toast.Style.Success, title: "Marked task as complete", message: task.title });
+        await playSound("todo.mp3");
+      }
     } catch (e) {
       await showToast({
         style: Toast.Style.Failure,
-        title: "Failed to complete task",
+        title: isDone ? "Failed to mark task as in progress" : "Failed to complete task",
         message: e instanceof Error ? e.message : undefined,
       });
     }
@@ -94,8 +104,8 @@ export const TaskEditMenu: FC<Props> = ({ task, refetchList }) => {
       )}
       {!isLocalOnly && (
         <Action
-          title="Mark as Complete"
-          icon={Icon.CheckCircle}
+          title={isDone ? "Mark as in Progress" : "Mark as Complete"}
+          icon={isDone ? Icon.Circle : Icon.CheckCircle}
           shortcut={{
             macOS: { modifiers: ["cmd", "shift"], key: "c" },
             Windows: { modifiers: ["ctrl", "shift"], key: "c" },
