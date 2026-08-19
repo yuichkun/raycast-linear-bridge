@@ -3,7 +3,7 @@ import { searchItems } from "../search";
 import { Task } from "../types";
 
 export function useSearch(unfilteredItems: Task[], initialSearchText?: string) {
-  const [searchText, setSearchText] = useState(initialSearchText ?? "today");
+  const [searchText, setSearchText] = useState(initialSearchText ?? "");
   const [filteredItems, setFilteredItems] = useState<Task[]>(unfilteredItems);
 
   useEffect(() => {

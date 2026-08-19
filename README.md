@@ -22,7 +22,7 @@ That's it — no OAuth, no separate "who am I" setting. Linear resolves the key'
 
 | Command | Mode | What it does |
 |---|---|---|
-| **List Tasks** | view | Main screen. Sections: Outdated (past-due, ignores search) → one section per Linear state actually in use (Backlog, Todo, Pending, In Progress, …) → Done. Full detail panel with description + metadata on the right. |
+| **List Tasks** | view | Main screen. Sections: Outdated (past-due, ignores search) → one section per Linear state actually in use (Backlog, Todo, Pending, In Progress, …) → Done. Detail panel is off by default (`⌘D` toggles it); `⌘⇧V` opens a full-screen detail view for any task. |
 | **Create Task** | view | Creates a task. **Local-only by default** — check "Save to Linear" to create a real Linear issue instead. |
 | **Archive Completed Tasks** | no-view | Archives every Done task (and drops local-only completed tasks from the cache) after a confirmation prompt. |
 | **Sync** | no-view, runs automatically every 5 minutes | Pushes any pending offline changes to Linear, then pulls the latest state. Can also be run manually from Raycast's root search. |
@@ -38,6 +38,7 @@ All shortcuts use `⌘⇧` on macOS / `Ctrl⇧` on Windows, matching Todo Buddy'
 | `D` | Set Due Date |
 | `R` | Rename Task |
 | `E` | Edit Description |
+| `S` | Change Status (any state, not just Complete/In Progress) |
 | `T` | Change Labels |
 | `L` | Change Priority |
 | `U` | Promote to Linear (local-only tasks only) |
