@@ -1,5 +1,5 @@
-import { Action, ActionPanel, Alert, confirmAlert, Icon, showToast, Toast } from "@raycast/api";
-import { FC } from "react";
+import { Action, Alert, confirmAlert, Icon, showToast, Toast } from "@raycast/api";
+import { FC, Fragment } from "react";
 import { playSound } from "../sound";
 import { archiveTask, markTaskComplete, markTaskInProgress } from "../storage";
 import { Task } from "../types";
@@ -67,8 +67,11 @@ export const TaskEditMenu: FC<Props> = ({ task, refetchList }) => {
     }
   };
 
+  // Flat actions rather than nested in an ActionPanel.Submenu: shortcuts on submenu-nested
+  // actions weren't firing reliably, and burying high-frequency actions (Complete, Archive)
+  // one level deep also made them harder to find via the actions list.
   return (
-    <ActionPanel.Submenu title="Edit">
+    <Fragment>
       <Action.Push
         title="Edit Task"
         icon={Icon.Pencil}
@@ -121,6 +124,6 @@ export const TaskEditMenu: FC<Props> = ({ task, refetchList }) => {
         }}
         onAction={handleArchive}
       />
-    </ActionPanel.Submenu>
+    </Fragment>
   );
 };

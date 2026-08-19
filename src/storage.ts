@@ -180,6 +180,10 @@ export type CreateTaskInput = {
   saveToLinear: boolean;
   teamId?: string;
   teamName?: string;
+  stateId?: string;
+  stateName?: string;
+  stateType?: Task["stateType"];
+  statePosition?: number;
   description?: string;
   dueDate?: string;
   priority?: number;
@@ -201,10 +205,14 @@ export async function createTask(input: CreateTaskInput): Promise<string> {
     description: input.description,
     dueDate: input.dueDate,
     priority: input.priority ?? 0,
-    // No real Linear state exists yet — "New" is a placeholder label so the task lands in
-    // a clearly-named section instead of a stray "Unknown" one (groupTasksBySection falls
-    // back to task.stateName when stateId/stateName aren't set).
-    stateName: "New",
+    // Local-only tasks have no team/state, so "New" is a placeholder label so the task
+    // lands in a clearly-named section instead of a stray "Unknown" one (groupTasksBySection
+    // falls back to task.stateName when stateId/stateName aren't set). Tasks saved to Linear
+    // carry the status picked in the form instead — see CreateTask's Status dropdown.
+    stateId: input.stateId,
+    stateName: input.stateName ?? "New",
+    stateType: input.stateType,
+    statePosition: input.statePosition,
     teamId: input.teamId,
     teamName: input.teamName,
     labelIds: input.labelIds ?? [],
@@ -221,6 +229,7 @@ export async function createTask(input: CreateTaskInput): Promise<string> {
       description: input.description,
       dueDate: input.dueDate,
       priority: input.priority,
+      stateId: input.stateId,
       labelIds: input.labelIds,
     };
     await enqueueCreate(tempId, createInput);
@@ -232,13 +241,22 @@ export async function createTask(input: CreateTaskInput): Promise<string> {
 // Promotes a local-only task to a pendingCreate one, reusing the exact same tempId ->
 // real-id flow as createTask(saveToLinear: true) — from here on it's indistinguishable
 // from a task that was saved to Linear from the start.
-export async function promoteToLinear(taskId: string, teamId: string, teamName: string): Promise<void> {
+export async function promoteToLinear(
+  taskId: string,
+  teamId: string,
+  teamName: string,
+  stateId: string,
+  stateName: string,
+  stateType: Task["stateType"],
+): Promise<void> {
   const cached = await getCachedTasks();
   const task = cached.find((t) => t.id === taskId);
   if (!task || task.syncState !== "local") return;
 
   const updated = cached.map((t) =>
-    t.id === taskId ? { ...t, syncState: "pendingCreate" as const, teamId, teamName } : t,
+    t.id === taskId
+      ? { ...t, syncState: "pendingCreate" as const, teamId, teamName, stateId, stateName, stateType }
+      : t,
   );
   await setCachedTasks(updated);
 
@@ -248,6 +266,7 @@ export async function promoteToLinear(taskId: string, teamId: string, teamName: 
     description: task.description,
     dueDate: task.dueDate,
     priority: task.priority,
+    stateId,
     labelIds: task.labelIds,
   };
   await enqueueCreate(taskId, createInput);

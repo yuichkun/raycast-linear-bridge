@@ -42,5 +42,6 @@ export type CreateIssueInput = {
   description?: string;
   dueDate?: string;
   priority?: number;
+  stateId?: string;
   labelIds?: string[];
 };

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getCachedTasks, setCachedTasks } from "./repository/localCache";
-import { enqueueFieldUpdate } from "./repository/syncQueue";
-import { changeTaskState, markTaskComplete, markTaskInProgress } from "./storage";
+import { enqueueCreate, enqueueFieldUpdate } from "./repository/syncQueue";
+import { changeTaskState, createTask, markTaskComplete, markTaskInProgress } from "./storage";
 import { Task } from "./types";
 
 vi.mock("./repository/localCache", () => ({
@@ -9,6 +9,8 @@ vi.mock("./repository/localCache", () => ({
   setCachedTasks: vi.fn(),
   getCachedTeamLabels: vi.fn(async () => new Map()),
   setCachedTeamLabels: vi.fn(),
+  getCachedTeamStates: vi.fn(async () => new Map()),
+  setCachedTeamStates: vi.fn(),
   getCachedTeams: vi.fn(async () => []),
   setCachedTeams: vi.fn(),
 }));
@@ -43,6 +45,48 @@ beforeEach(() => {
   vi.mocked(getCachedTasks).mockReset();
   vi.mocked(setCachedTasks).mockReset();
   vi.mocked(enqueueFieldUpdate).mockReset();
+  vi.mocked(enqueueCreate).mockReset();
+});
+
+describe("createTask", () => {
+  it("carries the picked status through to both the local task and the queued create op", async () => {
+    vi.mocked(getCachedTasks).mockResolvedValue([]);
+
+    await createTask({
+      title: "New Linear task",
+      saveToLinear: true,
+      teamId: "team-1",
+      teamName: "General",
+      stateId: "in-progress-id",
+      stateName: "In Progress",
+      stateType: "started",
+      statePosition: 0,
+    });
+
+    expect(setCachedTasks).toHaveBeenCalledWith([
+      expect.objectContaining({
+        syncState: "pendingCreate",
+        stateId: "in-progress-id",
+        stateName: "In Progress",
+        stateType: "started",
+      }),
+    ]);
+    expect(enqueueCreate).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ teamId: "team-1", stateId: "in-progress-id" }),
+    );
+  });
+
+  it("falls back to the New placeholder state for local-only tasks with no team", async () => {
+    vi.mocked(getCachedTasks).mockResolvedValue([]);
+
+    await createTask({ title: "Quick note", saveToLinear: false });
+
+    expect(setCachedTasks).toHaveBeenCalledWith([
+      expect.objectContaining({ syncState: "local", stateId: undefined, stateName: "New", stateType: undefined }),
+    ]);
+    expect(enqueueCreate).not.toHaveBeenCalled();
+  });
 });
 
 describe("markTaskInProgress", () => {

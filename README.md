@@ -23,7 +23,7 @@ That's it — no OAuth, no separate "who am I" setting. Linear resolves the key'
 | Command | Mode | What it does |
 |---|---|---|
 | **List Tasks** | view | Main screen. Sections: Outdated (past-due, ignores search) → one section per Linear state actually in use (Backlog, Todo, Pending, In Progress, …) → Done. Pressing Enter on a task opens a full-screen detail view; the inline detail panel is off by default (`⌘D` toggles it). |
-| **Create Task** | view | Creates a task. **Local-only by default** — check "Save to Linear" to create a real Linear issue instead. |
+| **Create Task** | view | Creates a task. **Local-only by default** — check "Save to Linear" to create a real Linear issue instead, picking a team and status (defaults to the team's "in progress"-equivalent state, not Triage). |
 | **Archive Completed Tasks** | no-view | Archives every Done task (and drops local-only completed tasks from the cache) after a confirmation prompt. |
 | **Sync** | no-view, runs automatically every 5 minutes | Pushes any pending offline changes to Linear, then pulls the latest state. Can also be run manually from Raycast's root search. |
 
@@ -46,7 +46,7 @@ That's it — no OAuth, no separate "who am I" setting. Linear resolves the key'
 
 Every task you create starts out **local-only**: it lives entirely in Raycast's local storage and is never sent to Linear. This is deliberate — Todo Buddy's actual daily use includes a lot of quick, personal, "don't forget this" notes that would just be noise in a shared Linear workspace if every one of them became a real issue.
 
-A local-only task shows a small drive icon and a "Local only — not saved to Linear" line in its detail panel. When you decide a task actually belongs in Linear, use **Promote to Linear** (`⌘⇧U`) to pick a team and create the real issue — from that point on it behaves exactly like any other synced task. There's no way back from Linear to local-only, on purpose: that would mean deleting an issue other people may already be looking at.
+A local-only task shows a small drive icon and a "Local only — not saved to Linear" line in its detail panel. When you decide a task actually belongs in Linear, use **Promote to Linear** (`⌘⇧U`) to pick a team and status and create the real issue — from that point on it behaves exactly like any other synced task. There's no way back from Linear to local-only, on purpose: that would mean deleting an issue other people may already be looking at.
 
 **Local-only tasks have no backup.** Since they never reach Linear, if Raycast's local storage for this extension is ever cleared (extension reinstall, Raycast data reset, etc.), they're gone for good. This tradeoff was made deliberately in exchange for not re-adding an Export/Import feature.
 
