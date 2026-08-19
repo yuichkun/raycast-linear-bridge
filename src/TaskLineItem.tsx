@@ -3,6 +3,7 @@ import { FC } from "react";
 import { TaskDetailView } from "./actions/TaskDetailView";
 import { TaskEditMenu } from "./actions/edit";
 import { PRIORITY_COLORS, PRIORITY_ICONS } from "./constants";
+import { nameToColor } from "./nameToColor";
 import { classifyTask } from "./task-order";
 import { taskDetailMarkdown, TaskMetadata } from "./TaskMetadata";
 import { Task } from "./types";
@@ -30,7 +31,7 @@ export const TaskLineItem: FC<Props> = ({ task, refetchList, isShowingDetail, on
       title={task.title}
       accessories={[
         { icon: priorityIcon ? { source: priorityIcon, tintColor: PRIORITY_COLORS[task.priority] } : null },
-        ...task.labelNames.map((name) => ({ tag: { value: name } })),
+        ...task.labelNames.map((name) => ({ tag: { value: name, color: nameToColor(name) } })),
         { tag: showStateTag && task.stateName ? { value: task.stateName } : null },
         { text: task.dueDate ? new Date(task.dueDate).toLocaleDateString() : null },
       ]}

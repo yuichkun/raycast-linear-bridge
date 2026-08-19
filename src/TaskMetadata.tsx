@@ -1,6 +1,7 @@
 import { Detail } from "@raycast/api";
 import { FC } from "react";
 import { PRIORITY_NAMES } from "./constants";
+import { nameToColor } from "./nameToColor";
 import { Task } from "./types";
 
 // `Detail.Metadata` and `List.Item.Detail.Metadata` are the same underlying component in
@@ -28,7 +29,9 @@ export const TaskMetadata: FC<Props> = ({ task }) => {
       <Detail.Metadata.Separator />
       <Detail.Metadata.TagList title="Labels">
         {task.labelNames.length > 0 ? (
-          task.labelNames.map((name) => <Detail.Metadata.TagList.Item key={name} text={name} />)
+          task.labelNames.map((name) => (
+            <Detail.Metadata.TagList.Item key={name} text={name} color={nameToColor(name)} />
+          ))
         ) : (
           <Detail.Metadata.TagList.Item text="No labels" />
         )}
