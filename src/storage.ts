@@ -12,7 +12,8 @@ import {
   setCachedTeams,
   setCachedTeamStates,
 } from "./repository/localCache";
-import { fetchAssignedIssues } from "./repository/linearApi";
+import { findLocalStage } from "./localStages";
+import { fetchAssignedIssues, resolveStateOfType } from "./repository/linearApi";
 import {
   ArchiveOp,
   enqueueArchive,
@@ -23,7 +24,7 @@ import {
   SyncOpField,
   UpdateFieldOp,
 } from "./repository/syncQueue";
-import { CreateIssueInput, Task } from "./types";
+import { CreateIssueInput, Task, WorkflowStateType } from "./types";
 
 export async function retrieveCachedItems(): Promise<Task[]> {
   return getCachedTasks();
@@ -63,54 +64,74 @@ export async function markTaskComplete(taskId: string): Promise<void> {
   const cached = await getCachedTasks();
   const task = cached.find((t) => t.id === taskId);
   if (!task) return;
-  await moveTaskToState(cached, task, task.doneStateId, task.doneStateName, "completed");
+  const target = await resolveMoveTarget(task, "completed");
+  await moveTaskToState(cached, task, target);
 }
 
 export async function markTaskInProgress(taskId: string): Promise<void> {
   const cached = await getCachedTasks();
   const task = cached.find((t) => t.id === taskId);
   if (!task) return;
-  await moveTaskToState(cached, task, task.startStateId, task.startStateName, task.startStateType);
+  const target = await resolveMoveTarget(task, "started");
+  await moveTaskToState(cached, task, target);
 }
 
 // Complete/In Progress are the two most common transitions and get their own one-key
 // shortcuts; this is the general-purpose escape hatch for moving to any other state a
-// team has (Triage, Backlog, a custom state, or moving something back out of Done).
+// team has (Triage, Backlog, a custom state, or moving something back out of Done) — or,
+// for a local-only task, any of the fixed LOCAL_STAGES.
 export async function changeTaskState(
   taskId: string,
-  targetStateId: string,
+  targetStateId: string | undefined,
   targetStateName: string,
-  targetStateType: Task["stateType"],
+  targetStateType: WorkflowStateType,
 ): Promise<void> {
   const cached = await getCachedTasks();
   const task = cached.find((t) => t.id === taskId);
   if (!task) return;
-  await moveTaskToState(cached, task, targetStateId, targetStateName, targetStateType);
+  await moveTaskToState(cached, task, { id: targetStateId, name: targetStateName, type: targetStateType });
 }
 
-async function moveTaskToState(
-  cached: Task[],
-  task: Task,
-  targetStateId: string | undefined,
-  targetStateName: string | undefined,
-  targetStateType: Task["stateType"],
-): Promise<void> {
-  // A missing target state means Linear has nothing configured for this transition (e.g.
-  // no start/done state resolved for the task's team) — this must surface as a failure, not
-  // a silent no-op that lets the caller report success for a change that never happened.
-  if (!targetStateId) {
+type MoveTarget = { id?: string; name: string; type: WorkflowStateType };
+
+// A task's team (if any) is the single source of truth for what "completed"/"started"
+// resolve to — resolved on demand from the team's cached states rather than precomputed
+// and stored on the task, so there's one place this decision is made for every caller
+// (Mark as Complete/in Progress, and previously a set of fields recomputed on every full
+// sync that could drift out of date between syncs). Local-only tasks have no team, so they
+// use the fixed LOCAL_STAGES instead — the only thing that makes a task "local" is whether
+// it exists in Linear, not whether it has a meaningful stage to move through.
+async function resolveMoveTarget(task: Task, type: WorkflowStateType): Promise<MoveTarget | undefined> {
+  if (task.syncState === "local") {
+    const stage = findLocalStage(type);
+    return stage ? { name: stage.name, type: stage.type } : undefined;
+  }
+  if (!task.teamId) return undefined;
+  const states = await retrieveStatesForTeam(task.teamId);
+  const target = resolveStateOfType(states, type);
+  return target ? { id: target.id, name: target.name, type: target.type as WorkflowStateType } : undefined;
+}
+
+async function moveTaskToState(cached: Task[], task: Task, target: MoveTarget | undefined): Promise<void> {
+  // A missing target state means there's nothing configured for this transition (e.g. no
+  // matching state resolved for the task's team) — this must surface as a failure, not a
+  // silent no-op that lets the caller report success for a change that never happened.
+  if (!target) {
+    throw new Error(`No matching state found for "${task.title}"`);
+  }
+  if (task.syncState !== "local" && !target.id) {
     throw new Error(`No matching state found in Linear for "${task.title}"'s team`);
   }
-  if (task.stateId === targetStateId) return;
+  if (task.stateName === target.name && task.stateType === target.type) return;
 
   const previousStateId = task.stateId;
   const updated = cached.map((t) =>
-    t.id === task.id ? { ...t, stateId: targetStateId, stateName: targetStateName, stateType: targetStateType } : t,
+    t.id === task.id ? { ...t, stateId: target.id, stateName: target.name, stateType: target.type } : t,
   );
   await setCachedTasks(updated);
 
   if (task.syncState === "synced") {
-    await enqueueFieldUpdate(task.id, "stateId", targetStateId, previousStateId);
+    await enqueueFieldUpdate(task.id, "stateId", target.id, previousStateId);
   }
 }
 
@@ -205,10 +226,9 @@ export async function createTask(input: CreateTaskInput): Promise<string> {
     description: input.description,
     dueDate: input.dueDate,
     priority: input.priority ?? 0,
-    // Local-only tasks have no team/state, so "New" is a placeholder label so the task
-    // lands in a clearly-named section instead of a stray "Unknown" one (groupTasksBySection
-    // falls back to task.stateName when stateId/stateName aren't set). Tasks saved to Linear
-    // carry the status picked in the form instead — see CreateTask's Status dropdown.
+    // Local-only and Linear tasks alike always carry a real stage picked in the Create
+    // Task form (LOCAL_STAGES for local-only, the team's real states for Save to Linear) —
+    // "New" is only an ultimate fallback, not the normal case.
     stateId: input.stateId,
     stateName: input.stateName ?? "New",
     stateType: input.stateType,

@@ -1,14 +1,17 @@
 import { useCachedPromise } from "@raycast/utils";
 import { useState } from "react";
 import { pickDefaultTeam } from "../constants";
-import { resolveStartState } from "../repository/linearApi";
+import { resolveStateOfType } from "../repository/linearApi";
 import { retrieveStatesForTeam, retrieveTeams } from "../storage";
+import { WorkflowStateType } from "../types";
 
 // Shared by every screen that needs to pick a Linear team + starting status for an issue
 // (Create Task, Promote to Linear). Previously this logic was copy-pasted into each screen
 // separately, which is exactly how they drifted out of sync with each other. One
-// implementation now: both default to the "General" team and its "in progress"-equivalent
-// state instead of Linear's own new-issue default (often Triage).
+// implementation now: both default to the "General" team and, by default, its
+// "in progress"-equivalent state — instead of Linear's own new-issue default (often
+// Triage). Promote to Linear passes the local task's current stage as `preferredType`
+// instead, so promoting preserves the stage it already had rather than resetting it.
 //
 // teamId/stateId are computed during render, not chased with a useEffect + setState pair.
 // The earlier effect-based version had a real bug: once teamId settled, its states fetch
@@ -19,7 +22,7 @@ import { retrieveStatesForTeam, retrieveTeams } from "../storage";
 // value in the same render makes that class of mismatch impossible: the value can never be
 // inconsistent with the options it's chosen from because they're computed from the same
 // source in the same pass.
-export function useTeamAndStatusPicker() {
+export function useTeamAndStatusPicker(preferredType: WorkflowStateType = "started") {
   const [teamIdOverride, setTeamIdOverride] = useState<string>();
   const [stateIdOverride, setStateIdOverride] = useState<string>();
 
@@ -36,7 +39,8 @@ export function useTeamAndStatusPicker() {
   // A manually-picked state only applies as long as it belongs to the current team's
   // states — switching teams invalidates it instead of carrying over a foreign id.
   const overrideIsValid = stateIdOverride && sortedStates.some((state) => state.id === stateIdOverride);
-  const stateId = overrideIsValid ? stateIdOverride : resolveStartState(sortedStates, null)?.id;
+  const defaultState = resolveStateOfType(sortedStates, preferredType) ?? resolveStateOfType(sortedStates, "started");
+  const stateId = overrideIsValid ? stateIdOverride : defaultState?.id;
 
   function setTeamId(id: string) {
     setTeamIdOverride(id);

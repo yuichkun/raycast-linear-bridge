@@ -3,6 +3,7 @@ import { useCachedPromise } from "@raycast/utils";
 import { FC } from "react";
 import { PRIORITY_NAMES } from "../constants";
 import { formatDateOnly } from "../date";
+import { findLocalStage, LOCAL_STAGES } from "../localStages";
 import {
   changeTaskState,
   renameTask,
@@ -26,14 +27,17 @@ type FormValues = {
   priority: string;
   description: string;
   stateId?: string;
+  localStage?: WorkflowStateType;
   labelIds?: string[];
 };
 
 // Every field on one form, submitted together: the earlier design split each field into
 // its own push-a-screen-change-one-thing-pop-back action, which meant a task that needed
-// (say) a new due date, priority, and status took three separate round trips. Status/Labels
-// only apply to tasks with a Linear team, so they're omitted for local-only tasks rather
-// than shown disabled.
+// (say) a new due date, priority, and status took three separate round trips. Status
+// applies to every task — local-only tasks pick from LOCAL_STAGES instead of a team's real
+// states, since there's no Linear team to source them from. Labels are a genuinely
+// Linear-only concept (a local task has nowhere to source label choices from), so that one
+// stays team-gated.
 export const EditTask: FC<Props> = ({ task, refetchList }) => {
   const { pop } = useNavigation();
   const hasTeam = Boolean(task.teamId);
@@ -74,6 +78,11 @@ export const EditTask: FC<Props> = ({ task, refetchList }) => {
         const state = states.find((s) => s.id === values.stateId);
         if (state) {
           await changeTaskState(task.id, state.id, state.name, state.type as WorkflowStateType);
+        }
+      } else if (!hasTeam && values.localStage && values.localStage !== task.stateType) {
+        const stage = findLocalStage(values.localStage);
+        if (stage) {
+          await changeTaskState(task.id, undefined, stage.name, stage.type);
         }
       }
 
@@ -118,13 +127,19 @@ export const EditTask: FC<Props> = ({ task, refetchList }) => {
           <Form.Dropdown.Item key={value} value={value} title={name} />
         ))}
       </Form.Dropdown>
-      {hasTeam && (
+      {hasTeam ? (
         <Form.Dropdown id="stateId" title="Status" defaultValue={task.stateId}>
           {[...states]
             .sort((a, b) => a.position - b.position)
             .map((state) => (
               <Form.Dropdown.Item key={state.id} value={state.id} title={state.name} />
             ))}
+        </Form.Dropdown>
+      ) : (
+        <Form.Dropdown id="localStage" title="Status" defaultValue={task.stateType}>
+          {LOCAL_STAGES.map((stage) => (
+            <Form.Dropdown.Item key={stage.type} value={stage.type} title={stage.name} />
+          ))}
         </Form.Dropdown>
       )}
       {hasTeam && (

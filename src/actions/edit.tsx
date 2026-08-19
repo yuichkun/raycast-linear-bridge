@@ -12,8 +12,9 @@ type Props = {
 };
 
 export const TaskEditMenu: FC<Props> = ({ task, refetchList }) => {
-  // A local-only task has no Linear team/state, so state transitions are meaningless
-  // (they'd silently no-op) — hide them and offer Promote to Linear instead.
+  // Local-only tasks have a real stage (LOCAL_STAGES) just like any other task — the only
+  // thing "local" changes is whether it exists in Linear, not what actions apply to it.
+  // Promote to Linear is the one exception, since it's specifically about that difference.
   const isLocalOnly = task.syncState === "local";
   const isDone = task.stateType === "completed";
 
@@ -102,28 +103,24 @@ export const TaskEditMenu: FC<Props> = ({ task, refetchList }) => {
           target={<PromoteToLinear task={task} refetchList={refetchList} />}
         />
       )}
-      {!isLocalOnly && (
-        <Action
-          title={isDone ? "Mark as in Progress" : "Mark as Complete"}
-          icon={isDone ? Icon.Circle : Icon.CheckCircle}
-          shortcut={{
-            macOS: { modifiers: ["cmd", "shift"], key: "c" },
-            Windows: { modifiers: ["ctrl", "shift"], key: "c" },
-          }}
-          onAction={handleComplete}
-        />
-      )}
-      {!isLocalOnly && (
-        <Action
-          title="Mark as in Progress"
-          icon={Icon.Circle}
-          shortcut={{
-            macOS: { modifiers: ["cmd", "shift"], key: "p" },
-            Windows: { modifiers: ["ctrl", "shift"], key: "p" },
-          }}
-          onAction={handleMarkInProgress}
-        />
-      )}
+      <Action
+        title={isDone ? "Mark as in Progress" : "Mark as Complete"}
+        icon={isDone ? Icon.Circle : Icon.CheckCircle}
+        shortcut={{
+          macOS: { modifiers: ["cmd", "shift"], key: "c" },
+          Windows: { modifiers: ["ctrl", "shift"], key: "c" },
+        }}
+        onAction={handleComplete}
+      />
+      <Action
+        title="Mark as in Progress"
+        icon={Icon.Circle}
+        shortcut={{
+          macOS: { modifiers: ["cmd", "shift"], key: "p" },
+          Windows: { modifiers: ["ctrl", "shift"], key: "p" },
+        }}
+        onAction={handleMarkInProgress}
+      />
       <Action
         title="Archive Task"
         icon={Icon.Tray}

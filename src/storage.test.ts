@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { getCachedTasks, setCachedTasks } from "./repository/localCache";
+import { getCachedTasks, getCachedTeamStates, setCachedTasks } from "./repository/localCache";
 import { enqueueCreate, enqueueFieldUpdate } from "./repository/syncQueue";
 import { changeTaskState, createTask, markTaskComplete, markTaskInProgress } from "./storage";
 import { Task } from "./types";
@@ -26,6 +26,8 @@ vi.mock("./repository/syncQueue", () => ({
 
 vi.mock("./repository/linearApi", () => ({
   fetchAssignedIssues: vi.fn(async () => ({ tasks: [], teamLabels: new Map(), teams: [] })),
+  resolveStateOfType: (states: { type: string; position: number }[], type: string) =>
+    [...states].filter((s) => s.type === type).sort((a, b) => a.position - b.position)[0],
 }));
 
 function task(overrides: Partial<Task> = {}): Task {
@@ -46,6 +48,7 @@ beforeEach(() => {
   vi.mocked(setCachedTasks).mockReset();
   vi.mocked(enqueueFieldUpdate).mockReset();
   vi.mocked(enqueueCreate).mockReset();
+  vi.mocked(getCachedTeamStates).mockReset().mockResolvedValue(new Map());
 });
 
 describe("createTask", () => {
@@ -77,13 +80,29 @@ describe("createTask", () => {
     );
   });
 
-  it("falls back to the New placeholder state for local-only tasks with no team", async () => {
+  it("falls back to the New placeholder state when no stage is provided", async () => {
     vi.mocked(getCachedTasks).mockResolvedValue([]);
 
     await createTask({ title: "Quick note", saveToLinear: false });
 
     expect(setCachedTasks).toHaveBeenCalledWith([
       expect.objectContaining({ syncState: "local", stateId: undefined, stateName: "New", stateType: undefined }),
+    ]);
+    expect(enqueueCreate).not.toHaveBeenCalled();
+  });
+
+  it("carries a picked local stage through for a local-only task", async () => {
+    vi.mocked(getCachedTasks).mockResolvedValue([]);
+
+    await createTask({ title: "Quick note", saveToLinear: false, stateName: "In Progress", stateType: "started" });
+
+    expect(setCachedTasks).toHaveBeenCalledWith([
+      expect.objectContaining({
+        syncState: "local",
+        stateId: undefined,
+        stateName: "In Progress",
+        stateType: "started",
+      }),
     ]);
     expect(enqueueCreate).not.toHaveBeenCalled();
   });
@@ -96,8 +115,9 @@ describe("markTaskInProgress", () => {
   // on Linear. It must throw instead, so the caller's existing catch-and-report-failure
   // path actually triggers.
   it("throws instead of silently succeeding when the task's team has no start state resolved", async () => {
-    const t = task({ startStateId: undefined });
+    const t = task({ teamId: "team-1" });
     vi.mocked(getCachedTasks).mockResolvedValue([t]);
+    vi.mocked(getCachedTeamStates).mockResolvedValue(new Map([["team-1", []]]));
 
     await expect(markTaskInProgress(t.id)).rejects.toThrow();
 
@@ -106,13 +126,11 @@ describe("markTaskInProgress", () => {
   });
 
   it("moves the task to its team's start state locally and enqueues the Linear update", async () => {
-    const t = task({
-      stateId: "backlog-id",
-      startStateId: "start-id",
-      startStateName: "In Progress",
-      startStateType: "started",
-    });
+    const t = task({ teamId: "team-1", stateId: "backlog-id", stateName: "Backlog", stateType: "backlog" });
     vi.mocked(getCachedTasks).mockResolvedValue([t]);
+    vi.mocked(getCachedTeamStates).mockResolvedValue(
+      new Map([["team-1", [{ id: "start-id", name: "In Progress", type: "started", position: 0 }]]]),
+    );
 
     await markTaskInProgress(t.id);
 
@@ -123,13 +141,11 @@ describe("markTaskInProgress", () => {
   });
 
   it("is a harmless no-op when the task is already in the start state", async () => {
-    const t = task({
-      stateId: "start-id",
-      startStateId: "start-id",
-      startStateName: "In Progress",
-      startStateType: "started",
-    });
+    const t = task({ teamId: "team-1", stateId: "start-id", stateName: "In Progress", stateType: "started" });
     vi.mocked(getCachedTasks).mockResolvedValue([t]);
+    vi.mocked(getCachedTeamStates).mockResolvedValue(
+      new Map([["team-1", [{ id: "start-id", name: "In Progress", type: "started", position: 0 }]]]),
+    );
 
     await expect(markTaskInProgress(t.id)).resolves.toBeUndefined();
 
@@ -137,19 +153,15 @@ describe("markTaskInProgress", () => {
     expect(enqueueFieldUpdate).not.toHaveBeenCalled();
   });
 
-  it("updates a local-only task's cache without enqueueing a Linear update", async () => {
-    const t = task({
-      syncState: "local",
-      stateId: undefined,
-      startStateId: "start-id",
-      startStateName: "In Progress",
-      startStateType: "started",
-    });
+  it("moves a local-only task to LOCAL_STAGES' In Progress without enqueueing a Linear update", async () => {
+    const t = task({ syncState: "local", stateId: undefined, stateName: "Backlog", stateType: "backlog" });
     vi.mocked(getCachedTasks).mockResolvedValue([t]);
 
     await markTaskInProgress(t.id);
 
-    expect(setCachedTasks).toHaveBeenCalled();
+    expect(setCachedTasks).toHaveBeenCalledWith([
+      expect.objectContaining({ id: t.id, stateId: undefined, stateName: "In Progress", stateType: "started" }),
+    ]);
     expect(enqueueFieldUpdate).not.toHaveBeenCalled();
   });
 });
@@ -166,15 +178,40 @@ describe("changeTaskState", () => {
     ]);
     expect(enqueueFieldUpdate).toHaveBeenCalledWith(t.id, "stateId", "triage-id", "backlog-id");
   });
+
+  it("moves a local-only task to a picked LOCAL_STAGES entry with no id", async () => {
+    const t = task({ syncState: "local", stateId: undefined, stateName: "Backlog", stateType: "backlog" });
+    vi.mocked(getCachedTasks).mockResolvedValue([t]);
+
+    await changeTaskState(t.id, undefined, "Done", "completed");
+
+    expect(setCachedTasks).toHaveBeenCalledWith([
+      expect.objectContaining({ id: t.id, stateId: undefined, stateName: "Done", stateType: "completed" }),
+    ]);
+    expect(enqueueFieldUpdate).not.toHaveBeenCalled();
+  });
 });
 
 describe("markTaskComplete", () => {
   it("throws instead of silently succeeding when the task's team has no done state resolved", async () => {
-    const t = task({ doneStateId: undefined });
+    const t = task({ teamId: "team-1" });
     vi.mocked(getCachedTasks).mockResolvedValue([t]);
+    vi.mocked(getCachedTeamStates).mockResolvedValue(new Map([["team-1", []]]));
 
     await expect(markTaskComplete(t.id)).rejects.toThrow();
 
     expect(setCachedTasks).not.toHaveBeenCalled();
+  });
+
+  it("moves a local-only task to LOCAL_STAGES' Done without enqueueing a Linear update", async () => {
+    const t = task({ syncState: "local", stateId: undefined, stateName: "In Progress", stateType: "started" });
+    vi.mocked(getCachedTasks).mockResolvedValue([t]);
+
+    await markTaskComplete(t.id);
+
+    expect(setCachedTasks).toHaveBeenCalledWith([
+      expect.objectContaining({ id: t.id, stateId: undefined, stateName: "Done", stateType: "completed" }),
+    ]);
+    expect(enqueueFieldUpdate).not.toHaveBeenCalled();
   });
 });

@@ -13,15 +13,15 @@ export type Task = {
   description?: string;
   dueDate?: string;
   priority: number;
+  // stateId is a real Linear id for synced/pendingCreate tasks. Local-only tasks have a
+  // real stage too (stateName/stateType) — see localStages.ts — but no id, since there's
+  // no Linear state to point at. The done/start state to move a task to is resolved
+  // on-demand from the task's team (or from LOCAL_STAGES for local tasks) rather than
+  // precomputed and stored here — see storage.ts's resolveMoveTarget.
   stateId?: string;
   stateName?: string;
   stateType?: WorkflowStateType;
   statePosition?: number;
-  doneStateId?: string;
-  doneStateName?: string;
-  startStateId?: string;
-  startStateName?: string;
-  startStateType?: WorkflowStateType;
   teamId?: string;
   teamName?: string;
   labelIds: string[];

@@ -40,9 +40,9 @@ export function classifyTask(task: Task): SectionKind {
 }
 
 function stateSortKey(task: Task): number {
-  // No stateType at all means "New" — a local-only or not-yet-synced task with no real
-  // Linear state yet (see createTask's placeholder stateName). Sorts before every real
-  // state so it's the first dynamic section, not buried behind Backlog.
+  // No stateType at all shouldn't normally happen — every task (local or Linear) carries a
+  // real stage now — but sorts before every real state as a defensive fallback rather than
+  // silently landing at the bottom behind Backlog if one ever does slip through.
   if (!task.stateType) return -1_000_000;
   const typeOrder = STATUS_TYPE_ORDER[task.stateType] ?? 99;
   const position = task.statePosition ?? 0;

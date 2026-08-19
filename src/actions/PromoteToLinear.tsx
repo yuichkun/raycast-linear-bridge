@@ -11,7 +11,12 @@ type Props = {
 
 export const PromoteToLinear: FC<Props> = ({ task, refetchList }) => {
   const { pop } = useNavigation();
-  const { teams, states, teamId, setTeamId, stateId, setStateId, isLoading } = useTeamAndStatusPicker();
+  // Defaults the status to the target team's equivalent of whatever stage this task is
+  // currently in (LOCAL_STAGES, since a local-only task always has one now) — promoting
+  // should preserve where the task already was, not reset it back to "in progress".
+  const { teams, states, teamId, setTeamId, stateId, setStateId, isLoading } = useTeamAndStatusPicker(
+    task.stateType ?? "started",
+  );
 
   const handleSubmit = async ({
     teamId: selectedTeamId,

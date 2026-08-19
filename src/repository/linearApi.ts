@@ -43,12 +43,8 @@ const ISSUES_QUERY = `
   }
 `;
 
-// Note: `startWorkflowStateId` is NOT a queryable field on Team in Linear's schema — the
-// SDK's own Team.startWorkflowStateId getter derives it from a nested `startWorkflowState
-// { id }` object (confirmed by reading the compiled SDK's Team fragment). Query it nested.
-//
-// Also fetches each team's labels here (not lazily when opening the label-change form) so
-// that the offline-first guarantee holds for label editing too — the choices need to come
+// Fetches each team's labels and states here (not lazily when opening an edit form) so
+// that the offline-first guarantee holds for those forms too — the choices need to come
 // from the cache, not a live request. Connection sizes are kept modest (this workspace has
 // 6 teams / 8 states / 10 labels) since nested pagination args multiply the GraphQL query's
 // complexity score; a naive `first: 250` on multiple nested connections tripped the 10000
@@ -59,12 +55,6 @@ const TEAM_METADATA_QUERY = `
       nodes {
         id
         name
-        startWorkflowState {
-          id
-          name
-          type
-          position
-        }
         states(first: 20) {
           nodes {
             id
@@ -111,7 +101,6 @@ type TeamMetadataQueryResult = {
     nodes: {
       id: string;
       name: string;
-      startWorkflowState: RawState | null;
       states: { nodes: RawState[] };
       labels: { nodes: RawLabel[] };
     }[];
@@ -120,31 +109,27 @@ type TeamMetadataQueryResult = {
 
 export type TeamMetadata = {
   name: string;
-  doneState?: RawState;
-  startState?: RawState;
   states: RawState[];
   labels: RawLabel[];
 };
 
-// `team.startWorkflowState` is nullable, and some teams (e.g. one in this workspace, which
-// has both a "Pending" and an "In Progress" state under the "started" category) don't have
-// it configured at all — Linear only auto-assigns it unambiguously when a team has a single
-// started-type state. Falling back to the started-type state with the lowest position keeps
-// "Mark as in Progress" working instead of silently having nowhere to send the task.
-export function resolveStartState(states: RawState[], explicitStartState: RawState | null): RawState | undefined {
-  if (explicitStartState) return explicitStartState;
-  return [...states].filter((state) => state.type === "started").sort((a, b) => a.position - b.position)[0];
+// The single rule for "which state should a task move to for a given category" (started,
+// completed, backlog, ...): lowest position among that team's states of that type. Used
+// both at full-sync time and on-demand (EditTask, Promote to Linear, Mark as
+// Complete/in Progress) so there's one place this decision is made, not one per call site.
+// Some teams (e.g. one in this workspace, which has both a "Pending" and an "In Progress"
+// state under "started") have more than one state per category — position picks a single
+// winner deterministically.
+export function resolveStateOfType(states: RawState[], type: RawState["type"]): RawState | undefined {
+  return [...states].filter((state) => state.type === type).sort((a, b) => a.position - b.position)[0];
 }
 
 async function fetchTeamMetadata(client: LinearClient): Promise<Map<string, TeamMetadata>> {
   const result = await client.client.request<TeamMetadataQueryResult, Record<string, never>>(TEAM_METADATA_QUERY);
   const map = new Map<string, TeamMetadata>();
   for (const team of result.teams.nodes) {
-    const doneState = team.states.nodes.find((state) => state.type === "completed");
     map.set(team.id, {
       name: team.name,
-      doneState,
-      startState: resolveStartState(team.states.nodes, team.startWorkflowState),
       states: team.states.nodes,
       labels: team.labels.nodes,
     });
@@ -170,9 +155,7 @@ async function fetchAllIssueNodes(client: LinearClient, viewerId: string): Promi
   return nodes;
 }
 
-function toTask(node: RawIssueNode, teamMetadata: Map<string, TeamMetadata>): Task {
-  const metadata = node.team ? teamMetadata.get(node.team.id) : undefined;
-
+function toTask(node: RawIssueNode): Task {
   return {
     id: node.id,
     syncState: "synced",
@@ -184,11 +167,6 @@ function toTask(node: RawIssueNode, teamMetadata: Map<string, TeamMetadata>): Ta
     stateName: node.state?.name,
     stateType: node.state?.type as WorkflowStateType | undefined,
     statePosition: node.state?.position,
-    doneStateId: metadata?.doneState?.id,
-    doneStateName: metadata?.doneState?.name,
-    startStateId: metadata?.startState?.id,
-    startStateName: metadata?.startState?.name,
-    startStateType: metadata?.startState?.type as WorkflowStateType | undefined,
     teamId: node.team?.id,
     teamName: node.team?.name,
     labelIds: node.labels.nodes.map((label) => label.id),
@@ -213,7 +191,7 @@ export async function fetchAssignedIssues(): Promise<FetchAssignedIssuesResult> 
 
   const [teamMetadata, nodes] = await Promise.all([fetchTeamMetadata(client), fetchAllIssueNodes(client, viewer.id)]);
 
-  const tasks = nodes.map((node) => toTask(node, teamMetadata));
+  const tasks = nodes.map((node) => toTask(node));
   const teamLabels = new Map<string, RawLabel[]>();
   const teamStates = new Map<string, RawState[]>();
   const teams: TeamOption[] = [];

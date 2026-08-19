@@ -4,6 +4,7 @@ import { useState } from "react";
 import { PRIORITY_NAMES } from "./constants";
 import { formatDateOnly } from "./date";
 import { useTeamAndStatusPicker } from "./hooks/useTeamAndStatusPicker";
+import { DEFAULT_LOCAL_STAGE, findLocalStage, LOCAL_STAGES } from "./localStages";
 import ListTasks from "./list-tasks";
 import { createTask, retrieveLabelsForTeam } from "./storage";
 import { WorkflowStateType } from "./types";
@@ -13,6 +14,7 @@ type FormValues = {
   saveToLinear: boolean;
   teamId: string;
   stateId: string;
+  localStage: WorkflowStateType;
   labelIds: string[];
   priority: string;
   description: string;
@@ -51,6 +53,7 @@ export default function Command() {
     try {
       const selectedTeam = teams.find((team) => team.id === values.teamId);
       const selectedState = states.find((state) => state.id === values.stateId);
+      const selectedLocalStage = findLocalStage(values.localStage) ?? DEFAULT_LOCAL_STAGE;
       const selectedLabelNames = labels.filter((label) => values.labelIds?.includes(label.id)).map((l) => l.name);
 
       await createTask({
@@ -59,8 +62,10 @@ export default function Command() {
         teamId: values.saveToLinear ? values.teamId : undefined,
         teamName: values.saveToLinear ? selectedTeam?.name : undefined,
         stateId: values.saveToLinear ? selectedState?.id : undefined,
-        stateName: values.saveToLinear ? selectedState?.name : undefined,
-        stateType: values.saveToLinear ? (selectedState?.type as WorkflowStateType | undefined) : undefined,
+        stateName: values.saveToLinear ? selectedState?.name : selectedLocalStage.name,
+        stateType: values.saveToLinear
+          ? (selectedState?.type as WorkflowStateType | undefined)
+          : selectedLocalStage.type,
         statePosition: values.saveToLinear ? selectedState?.position : undefined,
         description: values.description || undefined,
         dueDate: values.dueDate ? formatDateOnly(values.dueDate) : undefined,
@@ -97,7 +102,7 @@ export default function Command() {
         onChange={setSaveToLinear}
         info="Off by default: the task stays local-only and is never sent to Linear. Turn this on to create a real Linear issue instead — you can also promote a local task to Linear later."
       />
-      {saveToLinear && (
+      {saveToLinear ? (
         <>
           <Form.Dropdown id="teamId" title="Team" value={teamId} onChange={setTeamId}>
             {teams.map((team) => (
@@ -120,6 +125,12 @@ export default function Command() {
             ))}
           </Form.Dropdown>
         </>
+      ) : (
+        <Form.Dropdown id="localStage" title="Status" defaultValue={DEFAULT_LOCAL_STAGE.type}>
+          {LOCAL_STAGES.map((stage) => (
+            <Form.Dropdown.Item key={stage.type} value={stage.type} title={stage.name} />
+          ))}
+        </Form.Dropdown>
       )}
       <Form.TextArea id="description" title="Description" />
       <Form.DatePicker id="dueDate" title="Due Date" type={Form.DatePicker.Type.Date} />
