@@ -1,4 +1,4 @@
-import { Action, ActionPanel, Icon, showToast, Toast } from "@raycast/api";
+import { Action, ActionPanel, Alert, confirmAlert, Icon, showToast, Toast } from "@raycast/api";
 import { FC } from "react";
 import { playSound } from "../sound";
 import { archiveTask, markTaskComplete, markTaskInProgress } from "../storage";
@@ -46,6 +46,14 @@ export const TaskEditMenu: FC<Props> = ({ task, refetchList }) => {
   };
 
   const handleArchive = async () => {
+    const confirmed = await confirmAlert({
+      title: "Archive Task",
+      message: `Archive "${task.title}"?`,
+      primaryAction: { title: "Archive", style: Alert.ActionStyle.Destructive },
+      dismissAction: { title: "Cancel" },
+    });
+    if (!confirmed) return;
+
     try {
       await archiveTask(task.id);
       refetchList();
