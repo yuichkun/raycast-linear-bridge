@@ -97,4 +97,50 @@ describe("groupTasksBySection", () => {
     expect(stateSections).toHaveLength(1);
     expect(stateSections[0].tasks.map((t) => t.id)).toEqual(["a", "b"]);
   });
+
+  it("merges same-named states across different teams into one section (not one per team)", () => {
+    // Linear duplicates each workflow state per team under the hood — same name,
+    // different stateId. Two teams' "Backlog" must not become two "Backlog" sections.
+    const generalBacklog = task("g", {
+      stateId: "general-backlog-id",
+      stateName: "Backlog",
+      stateType: "backlog",
+      teamId: "team-general",
+    });
+    const suaraBacklog = task("s", {
+      stateId: "suara-backlog-id",
+      stateName: "Backlog",
+      stateType: "backlog",
+      teamId: "team-suara",
+    });
+
+    const sections = groupTasksBySection([generalBacklog, suaraBacklog]);
+    const stateSections = sections.filter((s) => s.key !== "outdated" && s.key !== "complete");
+
+    expect(stateSections).toHaveLength(1);
+    expect(stateSections[0].title).toBe("Backlog");
+    expect(stateSections[0].tasks.map((t) => t.id).sort()).toEqual(["g", "s"]);
+  });
+
+  it("uses the lower position when the same-named state has different positions per team", () => {
+    const higherPosition = task("h", {
+      stateId: "team-a-pending",
+      stateName: "Pending",
+      stateType: "started",
+      statePosition: 5,
+    });
+    const lowerPosition = task("l", {
+      stateId: "team-b-pending",
+      stateName: "Pending",
+      stateType: "started",
+      statePosition: 1,
+    });
+    const todo = task("t", { stateId: "todo-id", stateName: "Todo", stateType: "unstarted", statePosition: 0 });
+
+    // Feed the higher-position one first to make sure it doesn't "win" by being seen first.
+    const sections = groupTasksBySection([higherPosition, todo, lowerPosition]);
+    const stateSections = sections.filter((s) => s.key !== "outdated" && s.key !== "complete");
+
+    expect(stateSections.map((s) => s.title)).toEqual(["Todo", "Pending"]);
+  });
 });

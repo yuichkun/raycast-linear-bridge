@@ -41,7 +41,7 @@ export type Section = {
 export function groupTasksBySection(tasks: Task[]): Section[] {
   const outdated: Task[] = [];
   const complete: Task[] = [];
-  const stateGroups = new Map<string, { sortKey: number; title: string; tasks: Task[] }>();
+  const stateGroups = new Map<string, { sortKey: number; tasks: Task[] }>();
 
   for (const task of tasks) {
     const kind = classifyTask(task);
@@ -55,22 +55,27 @@ export function groupTasksBySection(tasks: Task[]): Section[] {
       continue;
     }
 
-    const key = task.stateId ?? "unknown";
+    // Grouped by state *name*, not stateId: Linear duplicates each workflow state
+    // per-team under the hood (every team gets its own "Backlog" with a distinct id),
+    // so grouping by id produced multiple identically-named sections instead of the
+    // single cross-team "Backlog" section Linear itself shows (e.g. a team's "All
+    // issues" board). If two teams' same-named state ever has a different position,
+    // the lower one wins so the section doesn't jump around based on which task
+    // happened to be seen first.
+    const key = task.stateName ?? "Unknown";
+    const sortKey = stateSortKey(task);
     const existing = stateGroups.get(key);
     if (existing) {
       existing.tasks.push(task);
+      existing.sortKey = Math.min(existing.sortKey, sortKey);
     } else {
-      stateGroups.set(key, {
-        sortKey: stateSortKey(task),
-        title: task.stateName ?? "Unknown",
-        tasks: [task],
-      });
+      stateGroups.set(key, { sortKey, tasks: [task] });
     }
   }
 
   const stateSections: Section[] = [...stateGroups.entries()]
     .sort(([, a], [, b]) => a.sortKey - b.sortKey)
-    .map(([stateId, group]) => ({ key: stateId, title: group.title, tasks: group.tasks }));
+    .map(([name, group]) => ({ key: name, title: name, tasks: group.tasks }));
 
   return [
     { key: "outdated", title: "⚠️ Outdated", tasks: outdated },
