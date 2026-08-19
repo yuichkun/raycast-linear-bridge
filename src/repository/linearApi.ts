@@ -63,12 +63,14 @@ const TEAM_METADATA_QUERY = `
           id
           name
           type
+          position
         }
         states(first: 20) {
           nodes {
             id
             name
             type
+            position
           }
         }
         labels(first: 50) {
@@ -101,7 +103,7 @@ type IssuesQueryResult = {
   };
 };
 
-type RawState = { id: string; name: string; type: string };
+type RawState = { id: string; name: string; type: string; position: number };
 type RawLabel = { id: string; name: string };
 
 type TeamMetadataQueryResult = {
@@ -123,6 +125,16 @@ export type TeamMetadata = {
   labels: RawLabel[];
 };
 
+// `team.startWorkflowState` is nullable, and some teams (e.g. one in this workspace, which
+// has both a "Pending" and an "In Progress" state under the "started" category) don't have
+// it configured at all — Linear only auto-assigns it unambiguously when a team has a single
+// started-type state. Falling back to the started-type state with the lowest position keeps
+// "Mark as in Progress" working instead of silently having nowhere to send the task.
+export function resolveStartState(states: RawState[], explicitStartState: RawState | null): RawState | undefined {
+  if (explicitStartState) return explicitStartState;
+  return [...states].filter((state) => state.type === "started").sort((a, b) => a.position - b.position)[0];
+}
+
 async function fetchTeamMetadata(client: LinearClient): Promise<Map<string, TeamMetadata>> {
   const result = await client.client.request<TeamMetadataQueryResult, Record<string, never>>(TEAM_METADATA_QUERY);
   const map = new Map<string, TeamMetadata>();
@@ -131,7 +143,7 @@ async function fetchTeamMetadata(client: LinearClient): Promise<Map<string, Team
     map.set(team.id, {
       name: team.name,
       doneState,
-      startState: team.startWorkflowState ?? undefined,
+      startState: resolveStartState(team.states.nodes, team.startWorkflowState),
       labels: team.labels.nodes,
     });
   }
