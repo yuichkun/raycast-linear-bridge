@@ -1,5 +1,5 @@
 import { Color, Icon, List } from "@raycast/api";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearch } from "./hooks/useSearch";
 import { runSync } from "./sync/runSync";
 import { retrieveCachedItems } from "./storage";
@@ -60,7 +60,10 @@ export default function Command() {
 
   // Archived tasks stay in the cache (so a failed archive can be rolled back accurately)
   // but are never shown, whether the archive is still pending sync or already confirmed.
-  const visibleTasks = tasks.filter((task) => !task.archivedLocally);
+  // Memoized so this is a stable reference across renders that don't change `tasks` —
+  // useSearch below depends on it, and a fresh array every render fed into an effect is
+  // exactly what caused an infinite render loop before.
+  const visibleTasks = useMemo(() => tasks.filter((task) => !task.archivedLocally), [tasks]);
 
   const { searchText, setSearchText, filteredItems } = useSearch(visibleTasks);
   const filteredTaskIds = new Set(filteredItems.map((task) => task.id));
