@@ -1,11 +1,11 @@
 import { Action, ActionPanel, Form, showToast, Toast, useNavigation } from "@raycast/api";
 import { useCachedPromise } from "@raycast/utils";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { PRIORITY_NAMES } from "./constants";
 import { formatDateOnly } from "./date";
+import { useTeamAndStatusPicker } from "./hooks/useTeamAndStatusPicker";
 import ListTasks from "./list-tasks";
-import { resolveStartState } from "./repository/linearApi";
-import { createTask, retrieveLabelsForTeam, retrieveStatesForTeam, retrieveTeams } from "./storage";
+import { createTask, retrieveLabelsForTeam } from "./storage";
 import { WorkflowStateType } from "./types";
 
 type FormValues = {
@@ -22,36 +22,21 @@ type FormValues = {
 export default function Command() {
   const { push } = useNavigation();
   const [saveToLinear, setSaveToLinear] = useState(false);
-  const [teamId, setTeamId] = useState<string>();
-  const [stateId, setStateId] = useState<string>();
+  const {
+    teams,
+    states,
+    teamId,
+    setTeamId,
+    stateId,
+    setStateId,
+    isLoading: isLoadingTeamAndStatus,
+  } = useTeamAndStatusPicker();
 
-  const { isLoading: isLoadingTeams, data: teams } = useCachedPromise(retrieveTeams, [], { initialData: [] });
   const { isLoading: isLoadingLabels, data: labels } = useCachedPromise(
     (id: string | undefined) => (id ? retrieveLabelsForTeam(id) : Promise.resolve([])),
     [teamId],
     { initialData: [] },
   );
-  const { isLoading: isLoadingStates, data: states } = useCachedPromise(
-    (id: string | undefined) => (id ? retrieveStatesForTeam(id) : Promise.resolve([])),
-    [teamId],
-    { initialData: [] },
-  );
-
-  // Linear's own "create issue" default is whatever the team's default status is, which
-  // is often Triage — not what you want for a task you're about to work on. Default to the
-  // same "in progress"-equivalent state Mark as in Progress resolves to instead, and reset
-  // the pick whenever the team changes so a stale id from the previous team can't linger.
-  useEffect(() => {
-    setStateId(undefined);
-  }, [teamId]);
-  useEffect(() => {
-    if (!stateId && states.length > 0) {
-      const defaultState = resolveStartState(states, null);
-      if (defaultState) setStateId(defaultState.id);
-    }
-  }, [states, stateId]);
-
-  const sortedStates = [...states].sort((a, b) => a.position - b.position);
 
   async function handleSubmit(values: FormValues) {
     if (!values.title) {
@@ -97,7 +82,7 @@ export default function Command() {
 
   return (
     <Form
-      isLoading={isLoadingTeams || isLoadingLabels || isLoadingStates}
+      isLoading={isLoadingTeamAndStatus || isLoadingLabels}
       actions={
         <ActionPanel>
           <Action.SubmitForm title="Create Task" onSubmit={handleSubmit} />
@@ -114,13 +99,13 @@ export default function Command() {
       />
       {saveToLinear && (
         <>
-          <Form.Dropdown id="teamId" title="Team" onChange={setTeamId}>
+          <Form.Dropdown id="teamId" title="Team" value={teamId} onChange={setTeamId}>
             {teams.map((team) => (
               <Form.Dropdown.Item key={team.id} value={team.id} title={team.name} />
             ))}
           </Form.Dropdown>
           <Form.Dropdown id="stateId" title="Status" value={stateId} onChange={setStateId}>
-            {sortedStates.map((state) => (
+            {states.map((state) => (
               <Form.Dropdown.Item key={state.id} value={state.id} title={state.name} />
             ))}
           </Form.Dropdown>

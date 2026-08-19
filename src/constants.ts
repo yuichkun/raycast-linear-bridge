@@ -1,5 +1,15 @@
 import { Color, Icon } from "@raycast/api";
 
+// The team to default to wherever a team must be picked (Create Task, Promote to Linear).
+// Hardcoded on purpose: this extension is built for one specific workspace, not as a
+// general-purpose product, and "General" is where the vast majority of assigned issues
+// already live there.
+export const DEFAULT_TEAM_NAME = "General";
+
+export function pickDefaultTeam<T extends { name: string }>(teams: T[]): T | undefined {
+  return teams.find((team) => team.name === DEFAULT_TEAM_NAME) ?? teams[0];
+}
+
 export const PRIORITY_NAMES: Record<number, string> = {
   0: "No priority",
   1: "Urgent",
