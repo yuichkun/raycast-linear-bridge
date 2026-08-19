@@ -71,15 +71,19 @@ describe("groupTasksBySection", () => {
     expect(stateSections.map((s) => s.title)).toEqual(["In Progress", "Pending"]);
   });
 
-  it("orders sections by status-type progression: backlog -> unstarted -> started", () => {
-    const started = task("s", { stateId: "s1", stateName: "In Progress", stateType: "started" });
+  it("orders sections by urgency, not Linear's own board order: started -> unstarted -> triage -> backlog", () => {
     const backlog = task("b", { stateId: "s2", stateName: "Backlog", stateType: "backlog" });
+    const triage = task("tr", { stateId: "s4", stateName: "Triage", stateType: "triage" });
     const unstarted = task("u", { stateId: "s3", stateName: "Todo", stateType: "unstarted" });
+    const started = task("s", { stateId: "s1", stateName: "In Progress", stateType: "started" });
 
-    const sections = groupTasksBySection([started, backlog, unstarted]);
+    const sections = groupTasksBySection([backlog, triage, unstarted, started]);
     const stateSections = sections.filter((s) => s.key !== "outdated" && s.key !== "complete");
 
-    expect(stateSections.map((s) => s.title)).toEqual(["Backlog", "Todo", "In Progress"]);
+    // What's already being worked on should surface above what hasn't been started,
+    // which should surface above what's just sitting in the backlog — the reverse of
+    // Linear's own backlog->done board column order.
+    expect(stateSections.map((s) => s.title)).toEqual(["In Progress", "Todo", "Triage", "Backlog"]);
   });
 
   it("keeps overdue tasks in Outdated regardless of their state", () => {
@@ -135,12 +139,19 @@ describe("groupTasksBySection", () => {
       stateType: "started",
       statePosition: 1,
     });
-    const todo = task("t", { stateId: "todo-id", stateName: "Todo", stateType: "unstarted", statePosition: 0 });
+    const inProgress = task("ip", {
+      stateId: "in-progress-id",
+      stateName: "In Progress",
+      stateType: "started",
+      statePosition: 0,
+    });
 
     // Feed the higher-position one first to make sure it doesn't "win" by being seen first.
-    const sections = groupTasksBySection([higherPosition, todo, lowerPosition]);
+    const sections = groupTasksBySection([higherPosition, inProgress, lowerPosition]);
     const stateSections = sections.filter((s) => s.key !== "outdated" && s.key !== "complete");
 
-    expect(stateSections.map((s) => s.title)).toEqual(["Todo", "Pending"]);
+    // Both "Pending" entries collapse to position 1 (the lower of 5 and 1), which still
+    // sorts after "In Progress" (position 0) within the same "started" type.
+    expect(stateSections.map((s) => s.title)).toEqual(["In Progress", "Pending"]);
   });
 });

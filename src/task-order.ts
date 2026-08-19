@@ -3,14 +3,17 @@ import { Task, WorkflowStateType } from "./types";
 
 const HIDDEN_STATE_TYPES = new Set<WorkflowStateType>(["canceled", "duplicate"]);
 
-// Natural progression of a Linear workflow state, used to order the dynamic per-state
-// sections. "completed" and "canceled"/"duplicate" are handled as their own fixed
-// sections (Complete / hidden) and never appear here.
+// Ordered by how much a section should demand attention *right now*, not by Linear's own
+// backlog->done workflow progression. A task tracker should surface what's already being
+// worked on first — burying "In Progress"/"Pending" below a "Backlog" pile just because
+// that's the order Linear's own board columns happen to render in would defeat the point
+// of a daily-use task list. "completed" and "canceled"/"duplicate" are handled as their
+// own fixed sections (Complete / hidden) and never appear here.
 const STATUS_TYPE_ORDER: Partial<Record<WorkflowStateType, number>> = {
-  triage: 0,
-  backlog: 1,
-  unstarted: 2,
-  started: 3,
+  started: 0,
+  unstarted: 1,
+  triage: 2,
+  backlog: 3,
 };
 
 export type SectionKind = "outdated" | "complete" | "hidden" | "state";
