@@ -1,13 +1,16 @@
 import { v4 as uuidv4 } from "uuid";
 import {
   CachedLabel,
+  CachedState,
   CachedTeam,
   getCachedTasks,
   getCachedTeamLabels,
   getCachedTeams,
+  getCachedTeamStates,
   setCachedTasks,
   setCachedTeamLabels,
   setCachedTeams,
+  setCachedTeamStates,
 } from "./repository/localCache";
 import { fetchAssignedIssues } from "./repository/linearApi";
 import {
@@ -31,18 +34,28 @@ export async function retrieveLabelsForTeam(teamId: string): Promise<CachedLabel
   return teamLabels.get(teamId) ?? [];
 }
 
+export async function retrieveStatesForTeam(teamId: string): Promise<CachedState[]> {
+  const teamStates = await getCachedTeamStates();
+  return teamStates.get(teamId) ?? [];
+}
+
 export async function retrieveTeams(): Promise<CachedTeam[]> {
   return getCachedTeams();
 }
 
 export async function refreshItemsFromLinear(): Promise<Task[]> {
-  const { tasks: fresh, teamLabels, teams } = await fetchAssignedIssues();
+  const { tasks: fresh, teamLabels, teamStates, teams } = await fetchAssignedIssues();
   const cached = await getCachedTasks();
   const localOnly = cached.filter((task) => task.syncState !== "synced");
   const queue = await getQueue();
   const merged = applyPendingOpsToAll(fresh, queue);
   const combined = [...localOnly, ...merged];
-  await Promise.all([setCachedTasks(combined), setCachedTeamLabels(teamLabels), setCachedTeams(teams)]);
+  await Promise.all([
+    setCachedTasks(combined),
+    setCachedTeamLabels(teamLabels),
+    setCachedTeamStates(teamStates),
+    setCachedTeams(teams),
+  ]);
   return combined;
 }
 
@@ -58,6 +71,21 @@ export async function markTaskInProgress(taskId: string): Promise<void> {
   const task = cached.find((t) => t.id === taskId);
   if (!task) return;
   await moveTaskToState(cached, task, task.startStateId, task.startStateName, task.startStateType);
+}
+
+// Complete/In Progress are the two most common transitions and get their own one-key
+// shortcuts; this is the general-purpose escape hatch for moving to any other state a
+// team has (Triage, Backlog, a custom state, or moving something back out of Done).
+export async function changeTaskState(
+  taskId: string,
+  targetStateId: string,
+  targetStateName: string,
+  targetStateType: Task["stateType"],
+): Promise<void> {
+  const cached = await getCachedTasks();
+  const task = cached.find((t) => t.id === taskId);
+  if (!task) return;
+  await moveTaskToState(cached, task, targetStateId, targetStateName, targetStateType);
 }
 
 async function moveTaskToState(

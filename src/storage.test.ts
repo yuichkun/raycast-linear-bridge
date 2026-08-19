@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getCachedTasks, setCachedTasks } from "./repository/localCache";
 import { enqueueFieldUpdate } from "./repository/syncQueue";
-import { markTaskComplete, markTaskInProgress } from "./storage";
+import { changeTaskState, markTaskComplete, markTaskInProgress } from "./storage";
 import { Task } from "./types";
 
 vi.mock("./repository/localCache", () => ({
@@ -107,6 +107,20 @@ describe("markTaskInProgress", () => {
 
     expect(setCachedTasks).toHaveBeenCalled();
     expect(enqueueFieldUpdate).not.toHaveBeenCalled();
+  });
+});
+
+describe("changeTaskState", () => {
+  it("moves a task to any state the caller picks, not just the resolved start/done state", async () => {
+    const t = task({ stateId: "backlog-id", stateName: "Backlog", stateType: "backlog" });
+    vi.mocked(getCachedTasks).mockResolvedValue([t]);
+
+    await changeTaskState(t.id, "triage-id", "Triage", "triage");
+
+    expect(setCachedTasks).toHaveBeenCalledWith([
+      expect.objectContaining({ id: t.id, stateId: "triage-id", stateName: "Triage", stateType: "triage" }),
+    ]);
+    expect(enqueueFieldUpdate).toHaveBeenCalledWith(t.id, "stateId", "triage-id", "backlog-id");
   });
 });
 

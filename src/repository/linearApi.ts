@@ -103,7 +103,7 @@ type IssuesQueryResult = {
   };
 };
 
-type RawState = { id: string; name: string; type: string; position: number };
+export type RawState = { id: string; name: string; type: string; position: number };
 type RawLabel = { id: string; name: string };
 
 type TeamMetadataQueryResult = {
@@ -122,6 +122,7 @@ export type TeamMetadata = {
   name: string;
   doneState?: RawState;
   startState?: RawState;
+  states: RawState[];
   labels: RawLabel[];
 };
 
@@ -144,6 +145,7 @@ async function fetchTeamMetadata(client: LinearClient): Promise<Map<string, Team
       name: team.name,
       doneState,
       startState: resolveStartState(team.states.nodes, team.startWorkflowState),
+      states: team.states.nodes,
       labels: team.labels.nodes,
     });
   }
@@ -201,6 +203,7 @@ export type TeamOption = { id: string; name: string };
 export type FetchAssignedIssuesResult = {
   tasks: Task[];
   teamLabels: Map<string, RawLabel[]>;
+  teamStates: Map<string, RawState[]>;
   teams: TeamOption[];
 };
 
@@ -212,13 +215,15 @@ export async function fetchAssignedIssues(): Promise<FetchAssignedIssuesResult> 
 
   const tasks = nodes.map((node) => toTask(node, teamMetadata));
   const teamLabels = new Map<string, RawLabel[]>();
+  const teamStates = new Map<string, RawState[]>();
   const teams: TeamOption[] = [];
   for (const [teamId, metadata] of teamMetadata) {
     teamLabels.set(teamId, metadata.labels);
+    teamStates.set(teamId, metadata.states);
     teams.push({ id: teamId, name: metadata.name });
   }
 
-  return { tasks, teamLabels, teams };
+  return { tasks, teamLabels, teamStates, teams };
 }
 
 export async function updateIssueField(issueId: string, field: SyncOpField, value: unknown): Promise<void> {

@@ -6,6 +6,7 @@ import { archiveTask, markTaskComplete, markTaskInProgress, updateDueDate } from
 import { Task } from "../types";
 import { ChangeLabels } from "./ChangeLabels";
 import { ChangePriority } from "./ChangePriority";
+import { ChangeStatus } from "./ChangeStatus";
 import { EditDescription } from "./EditDescription";
 import { PromoteToLinear } from "./PromoteToLinear";
 import { RenameTask } from "./RenameTask";
@@ -140,6 +141,17 @@ export const TaskEditMenu: FC<Props> = ({ task, refetchList }) => {
         }}
         target={<EditDescription task={task} refetchList={refetchList} />}
       />
+      {!isLocalOnly && (
+        <Action.Push
+          title="Change Status"
+          icon={Icon.CircleProgress}
+          shortcut={{
+            macOS: { modifiers: ["cmd", "shift"], key: "s" },
+            Windows: { modifiers: ["ctrl", "shift"], key: "s" },
+          }}
+          target={<ChangeStatus task={task} refetchList={refetchList} />}
+        />
+      )}
       {!isLocalOnly && (
         <Action.Push
           title="Change Labels"
