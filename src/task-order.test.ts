@@ -70,7 +70,7 @@ describe("groupTasksBySection", () => {
     // Both are "started", so they sort by statePosition: In Progress (0) before Pending (1).
     // Distinct emoji even though both share a stateType — same emoji would visually
     // re-merge sections that were deliberately split apart to stay distinguishable.
-    expect(stateSections.map((s) => s.title)).toEqual(["🚧 In Progress", "⏳ Pending"]);
+    expect(stateSections.map((s) => s.title)).toEqual(["🔥 In Progress", "⚡ Pending"]);
   });
 
   it("orders sections by urgency, not Linear's own board order: started -> unstarted -> triage -> backlog", () => {
@@ -85,7 +85,7 @@ describe("groupTasksBySection", () => {
     // What's already being worked on should surface above what hasn't been started,
     // which should surface above what's just sitting in the backlog — the reverse of
     // Linear's own backlog->done board column order.
-    expect(stateSections.map((s) => s.title)).toEqual(["🚧 In Progress", "📝 Todo", "📥 Triage", "🗂️ Backlog"]);
+    expect(stateSections.map((s) => s.title)).toEqual(["🔥 In Progress", "📝 Todo", "📥 Triage", "🗂️ Backlog"]);
   });
 
   it("keeps overdue tasks in Outdated regardless of their state", () => {
@@ -154,7 +154,7 @@ describe("groupTasksBySection", () => {
 
     // Both "Pending" entries collapse to position 1 (the lower of 5 and 1), which still
     // sorts after "In Progress" (position 0) within the same "started" type.
-    expect(stateSections.map((s) => s.title)).toEqual(["🚧 In Progress", "⏳ Pending"]);
+    expect(stateSections.map((s) => s.title)).toEqual(["🔥 In Progress", "⚡ Pending"]);
   });
 
   it("gives same-type sections distinct emoji instead of visually re-merging them", () => {

@@ -24,7 +24,7 @@ const STATUS_TYPE_ORDER: Partial<Record<WorkflowStateType, number>> = {
 // visible. Sections are assigned emoji in display order, so the first "started" section on
 // screen gets the pool's first emoji, the second gets the next, etc.
 const STATUS_TYPE_EMOJI_POOL: Partial<Record<WorkflowStateType, string[]>> = {
-  started: ["🚧", "⏳", "🏃", "🔥"],
+  started: ["🔥", "⚡", "🚀", "💪"],
   unstarted: ["📝", "🗒️", "📋"],
   triage: ["📥", "🔍", "❓"],
   backlog: ["🗂️", "📦", "🧊"],
