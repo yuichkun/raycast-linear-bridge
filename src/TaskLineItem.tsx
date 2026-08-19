@@ -40,7 +40,7 @@ export const TaskLineItem: FC<Props> = ({ task, refetchList, isShowingDetail, on
           <Action.Push
             title="View Task"
             icon={Icon.Maximize}
-            target={<TaskDetailView task={task} refetchList={refetchList} />}
+            target={<TaskDetailView taskId={task.id} refetchList={refetchList} />}
           />
           <TaskEditMenu task={task} refetchList={refetchList} />
           <Action
