@@ -2,8 +2,9 @@ import { Action, ActionPanel, Color, Icon, List } from "@raycast/api";
 import { FC } from "react";
 import { TaskDetailView } from "./actions/TaskDetailView";
 import { TaskEditMenu } from "./actions/edit";
-import { PRIORITY_COLORS, PRIORITY_ICONS, PRIORITY_NAMES } from "./constants";
+import { PRIORITY_COLORS, PRIORITY_ICONS } from "./constants";
 import { classifyTask } from "./task-order";
+import { taskDetailMarkdown, TaskMetadata } from "./TaskMetadata";
 import { Task } from "./types";
 
 type Props = {
@@ -33,31 +34,7 @@ export const TaskLineItem: FC<Props> = ({ task, refetchList, isShowingDetail, on
         { tag: showStateTag && task.stateName ? { value: task.stateName } : null },
         { text: task.dueDate ? new Date(task.dueDate).toLocaleDateString() : null },
       ]}
-      detail={
-        <List.Item.Detail
-          markdown={task.description || "*No description*"}
-          metadata={
-            <List.Item.Detail.Metadata>
-              {isLocalOnly && <List.Item.Detail.Metadata.Label title="Sync" text="Local only — not saved to Linear" />}
-              <List.Item.Detail.Metadata.Label title="Team" text={task.teamName ?? "—"} />
-              <List.Item.Detail.Metadata.Label title="Status" text={task.stateName ?? "—"} />
-              <List.Item.Detail.Metadata.Label
-                title="Due Date"
-                text={task.dueDate ? new Date(task.dueDate).toLocaleDateString() : "—"}
-              />
-              <List.Item.Detail.Metadata.Label title="Priority" text={PRIORITY_NAMES[task.priority] ?? "No priority"} />
-              <List.Item.Detail.Metadata.Separator />
-              <List.Item.Detail.Metadata.TagList title="Labels">
-                {task.labelNames.length > 0 ? (
-                  task.labelNames.map((name) => <List.Item.Detail.Metadata.TagList.Item key={name} text={name} />)
-                ) : (
-                  <List.Item.Detail.Metadata.TagList.Item text="No labels" />
-                )}
-              </List.Item.Detail.Metadata.TagList>
-            </List.Item.Detail.Metadata>
-          }
-        />
-      }
+      detail={<List.Item.Detail markdown={taskDetailMarkdown(task)} metadata={<TaskMetadata task={task} />} />}
       actions={
         <ActionPanel title="Linear Bridge">
           <Action.Push
