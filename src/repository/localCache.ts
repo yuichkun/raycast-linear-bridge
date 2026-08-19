@@ -1,18 +1,27 @@
 import { LocalStorage } from "@raycast/api";
 import { Task } from "../types";
+import { readJsonFile, writeJsonFile } from "./fileStore";
 
-const TASKS_CACHE_KEY = "tasks";
+// Tasks are irreplaceable for local-only/pendingCreate ones (no Linear copy exists), so
+// they live in environment.supportPath rather than LocalStorage — see fileStore.ts for why.
+// TASKS_LEGACY_KEY is only used to migrate existing installs' data on first read after this
+// change ships; new writes never touch LocalStorage under this key again.
+const TASKS_FILE = "tasks.json";
+const TASKS_LEGACY_KEY = "tasks";
+
 const TEAM_LABELS_CACHE_KEY = "teamLabels";
 const TEAM_STATES_CACHE_KEY = "teamStates";
 const TEAMS_CACHE_KEY = "teams";
 
+// teamLabels/teamStates/teams below stay on LocalStorage deliberately — they're re-fetched
+// wholesale from Linear on every sync (see storage.ts's refreshItemsFromLinear), so losing
+// them costs nothing. Moving them to disk too would just be extra surface for no benefit.
 export async function getCachedTasks(): Promise<Task[]> {
-  const raw = await LocalStorage.getItem<string>(TASKS_CACHE_KEY);
-  return raw ? JSON.parse(raw) : [];
+  return readJsonFile<Task[]>(TASKS_FILE, [], TASKS_LEGACY_KEY);
 }
 
 export async function setCachedTasks(tasks: Task[]): Promise<void> {
-  await LocalStorage.setItem(TASKS_CACHE_KEY, JSON.stringify(tasks));
+  await writeJsonFile(TASKS_FILE, tasks);
 }
 
 export type CachedLabel = { id: string; name: string };
