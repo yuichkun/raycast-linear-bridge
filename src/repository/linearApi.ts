@@ -236,9 +236,15 @@ export async function archiveIssue(issueId: string): Promise<void> {
   await client.archiveIssue(issueId);
 }
 
+// Every issue this extension creates must be assigned to the key's own viewer — the
+// entire list is built on an `assignee: me` filter (fetchAllIssueNodes above), so an
+// unassigned issue would be created successfully and then immediately vanish from view on
+// the next sync. Resolved here (at actual sync time, always online) rather than passed in
+// from the caller, so it's not something a future call site can forget to set.
 export async function createIssue(input: CreateIssueInput): Promise<string> {
   const client = getLinearClient();
-  const payload = await client.createIssue(input);
+  const viewer = await client.viewer;
+  const payload = await client.createIssue({ ...input, assigneeId: viewer.id });
   const issue = await payload.issue;
   if (!issue) throw new Error("Linear did not return the created issue");
   return issue.id;
