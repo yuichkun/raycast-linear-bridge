@@ -8,6 +8,7 @@ type SearchTarget = Task & {
   urgency?: string;
   hasNoLabel: string;
   priorityName: string;
+  syncLabel: string;
 };
 
 export function searchItems(unfilteredItems: Task[], searchText: string): Task[] {
@@ -17,10 +18,23 @@ export function searchItems(unfilteredItems: Task[], searchText: string): Task[]
     urgency: determineDueUrgency(task.dueDate),
     hasNoLabel: task.labelNames.length === 0 ? "no label" : "",
     priorityName: PRIORITY_NAMES[task.priority] ?? "No priority",
+    // Lets "local" in the search bar filter down to local-only tasks, the same way "today"
+    // already filters by due-date urgency.
+    syncLabel: task.syncState === "local" ? "local only" : "",
   }));
 
   const fuse = new Fuse(searchTargets, {
-    keys: ["title", "labelNames", "stateName", "teamName", "dueDateFormatted", "urgency", "hasNoLabel", "priorityName"],
+    keys: [
+      "title",
+      "labelNames",
+      "stateName",
+      "teamName",
+      "dueDateFormatted",
+      "urgency",
+      "hasNoLabel",
+      "priorityName",
+      "syncLabel",
+    ],
     useExtendedSearch: true,
     threshold: 0.2,
   });
