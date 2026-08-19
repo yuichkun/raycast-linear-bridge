@@ -33,14 +33,9 @@ All shortcuts use `⌘⇧` on macOS / `Ctrl⇧` on Windows, matching Todo Buddy'
 
 | Shortcut | Action |
 |---|---|
+| `E` | Edit Task — one form for title, due date, priority, description, and (for Linear tasks) status and labels |
 | `C` | Mark as Complete |
 | `P` | Mark as In Progress |
-| `D` | Set Due Date |
-| `R` | Rename Task |
-| `E` | Edit Description |
-| `S` | Change Status (any state, not just Complete/In Progress) |
-| `T` | Change Labels |
-| `L` | Change Priority |
 | `U` | Promote to Linear (local-only tasks only) |
 | `V` | View Full Details (a full-screen detail page, separate from the inline detail panel) |
 | `⌫` (Delete) | Archive Task |
@@ -57,7 +52,7 @@ A local-only task shows a small drive icon and a "Local only — not saved to Li
 
 ## Offline-first design
 
-- Every mutation (complete, rename, change priority, …) writes to a local cache immediately and returns — there is no waiting on a network request.
+- Every mutation (complete, edit, archive, …) writes to a local cache immediately and returns — there is no waiting on a network request.
 - Changes are queued and pushed to Linear in the background, both right after you make them and on a 5-minute interval.
 - If you're offline, changes simply queue up until the next successful sync; nothing is lost.
 - Manual reordering and pinning — which existed in Todo Buddy — were deliberately dropped in favor of Linear's own per-state sections, since Linear's own manual ordering is shared workspace-wide and would otherwise quietly reorder things for your teammates too.

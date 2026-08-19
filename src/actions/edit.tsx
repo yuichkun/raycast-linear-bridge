@@ -1,15 +1,10 @@
 import { Action, ActionPanel, Icon, showToast, Toast } from "@raycast/api";
 import { FC } from "react";
-import { formatDateOnly } from "../date";
 import { playSound } from "../sound";
-import { archiveTask, markTaskComplete, markTaskInProgress, updateDueDate } from "../storage";
+import { archiveTask, markTaskComplete, markTaskInProgress } from "../storage";
 import { Task } from "../types";
-import { ChangeLabels } from "./ChangeLabels";
-import { ChangePriority } from "./ChangePriority";
-import { ChangeStatus } from "./ChangeStatus";
-import { EditDescription } from "./EditDescription";
+import { EditTask } from "./EditTask";
 import { PromoteToLinear } from "./PromoteToLinear";
-import { RenameTask } from "./RenameTask";
 
 type Props = {
   task: Task;
@@ -17,9 +12,8 @@ type Props = {
 };
 
 export const TaskEditMenu: FC<Props> = ({ task, refetchList }) => {
-  // A local-only task has no Linear team/state, so state transitions and team-scoped
-  // label selection are meaningless (they'd silently no-op) — hide them and offer
-  // Promote to Linear instead.
+  // A local-only task has no Linear team/state, so state transitions are meaningless
+  // (they'd silently no-op) — hide them and offer Promote to Linear instead.
   const isLocalOnly = task.syncState === "local";
 
   const handleComplete = async () => {
@@ -51,20 +45,6 @@ export const TaskEditMenu: FC<Props> = ({ task, refetchList }) => {
     }
   };
 
-  const handleUpdateDate = async (date: Date | null) => {
-    try {
-      await updateDueDate(task.id, date ? formatDateOnly(date) : undefined);
-      refetchList();
-      await showToast({ style: Toast.Style.Success, title: "Updated due date", message: task.title });
-    } catch (e) {
-      await showToast({
-        style: Toast.Style.Failure,
-        title: "Failed to update due date",
-        message: e instanceof Error ? e.message : undefined,
-      });
-    }
-  };
-
   const handleArchive = async () => {
     try {
       await archiveTask(task.id);
@@ -81,6 +61,15 @@ export const TaskEditMenu: FC<Props> = ({ task, refetchList }) => {
 
   return (
     <ActionPanel.Submenu title="Edit">
+      <Action.Push
+        title="Edit Task"
+        icon={Icon.Pencil}
+        shortcut={{
+          macOS: { modifiers: ["cmd", "shift"], key: "e" },
+          Windows: { modifiers: ["ctrl", "shift"], key: "e" },
+        }}
+        target={<EditTask task={task} refetchList={refetchList} />}
+      />
       {isLocalOnly && (
         <Action.Push
           title="Promote to Linear"
@@ -114,64 +103,6 @@ export const TaskEditMenu: FC<Props> = ({ task, refetchList }) => {
           onAction={handleMarkInProgress}
         />
       )}
-      <Action.PickDate
-        title="Set Date"
-        type={Action.PickDate.Type.Date}
-        shortcut={{
-          macOS: { modifiers: ["cmd", "shift"], key: "d" },
-          Windows: { modifiers: ["ctrl", "shift"], key: "d" },
-        }}
-        onChange={handleUpdateDate}
-      />
-      <Action.Push
-        title="Rename Task"
-        icon={Icon.Pencil}
-        shortcut={{
-          macOS: { modifiers: ["cmd", "shift"], key: "r" },
-          Windows: { modifiers: ["ctrl", "shift"], key: "r" },
-        }}
-        target={<RenameTask task={task} refetchList={refetchList} />}
-      />
-      <Action.Push
-        title="Edit Description"
-        icon={Icon.Document}
-        shortcut={{
-          macOS: { modifiers: ["cmd", "shift"], key: "e" },
-          Windows: { modifiers: ["ctrl", "shift"], key: "e" },
-        }}
-        target={<EditDescription task={task} refetchList={refetchList} />}
-      />
-      {!isLocalOnly && (
-        <Action.Push
-          title="Change Status"
-          icon={Icon.CircleProgress}
-          shortcut={{
-            macOS: { modifiers: ["cmd", "shift"], key: "s" },
-            Windows: { modifiers: ["ctrl", "shift"], key: "s" },
-          }}
-          target={<ChangeStatus task={task} refetchList={refetchList} />}
-        />
-      )}
-      {!isLocalOnly && (
-        <Action.Push
-          title="Change Labels"
-          icon={Icon.Tag}
-          shortcut={{
-            macOS: { modifiers: ["cmd", "shift"], key: "t" },
-            Windows: { modifiers: ["ctrl", "shift"], key: "t" },
-          }}
-          target={<ChangeLabels task={task} refetchList={refetchList} />}
-        />
-      )}
-      <Action.Push
-        title="Change Priority"
-        icon={Icon.Stars}
-        shortcut={{
-          macOS: { modifiers: ["cmd", "shift"], key: "l" },
-          Windows: { modifiers: ["ctrl", "shift"], key: "l" },
-        }}
-        target={<ChangePriority task={task} refetchList={refetchList} />}
-      />
       <Action
         title="Archive Task"
         icon={Icon.Tray}
