@@ -40,7 +40,11 @@ export function classifyTask(task: Task): SectionKind {
 }
 
 function stateSortKey(task: Task): number {
-  const typeOrder = task.stateType ? (STATUS_TYPE_ORDER[task.stateType] ?? 99) : 99;
+  // No stateType at all means "New" — a local-only or not-yet-synced task with no real
+  // Linear state yet (see createTask's placeholder stateName). Sorts before every real
+  // state so it's the first dynamic section, not buried behind Backlog.
+  if (!task.stateType) return -1_000_000;
+  const typeOrder = STATUS_TYPE_ORDER[task.stateType] ?? 99;
   const position = task.statePosition ?? 0;
   return typeOrder * 1_000_000 + position;
 }
@@ -94,12 +98,16 @@ export function groupTasksBySection(tasks: Task[]): Section[] {
   const stateSections: Section[] = [...stateGroups.entries()]
     .sort(([, a], [, b]) => a.sortKey - b.sortKey)
     .map(([name, group]) => {
-      const pool = group.stateType ? STATUS_TYPE_EMOJI_POOL[group.stateType] : undefined;
       let emoji: string | undefined;
-      if (pool && pool.length > 0 && group.stateType) {
-        const index = emojiIndexByType.get(group.stateType) ?? 0;
-        emoji = pool[index % pool.length];
-        emojiIndexByType.set(group.stateType, index + 1);
+      if (!group.stateType) {
+        emoji = "🆕";
+      } else {
+        const pool = STATUS_TYPE_EMOJI_POOL[group.stateType];
+        if (pool && pool.length > 0) {
+          const index = emojiIndexByType.get(group.stateType) ?? 0;
+          emoji = pool[index % pool.length];
+          emojiIndexByType.set(group.stateType, index + 1);
+        }
       }
       return { key: name, title: emoji ? `${emoji} ${name}` : name, tasks: group.tasks };
     });

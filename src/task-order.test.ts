@@ -173,4 +173,18 @@ describe("groupTasksBySection", () => {
 
     expect(new Set(emojis).size).toBe(emojis.length);
   });
+
+  it("sorts the New section (local-only/pending tasks with no real state yet) before every other dynamic section", () => {
+    // createTask gives local-only/pendingCreate tasks stateName: "New" and no stateType
+    // at all — see storage.ts. This should always surface first among dynamic sections,
+    // not sink to the bottom behind Backlog just because it has no recognized type.
+    const backlog = task("b", { stateId: "s2", stateName: "Backlog", stateType: "backlog" });
+    const started = task("s", { stateId: "s1", stateName: "In Progress", stateType: "started" });
+    const newTask = task("n", { stateId: undefined, stateName: "New", stateType: undefined });
+
+    const sections = groupTasksBySection([backlog, started, newTask]);
+    const stateSections = sections.filter((s) => s.key !== "outdated" && s.key !== "complete");
+
+    expect(stateSections.map((s) => s.title)).toEqual(["🆕 New", "🔥 In Progress", "🗂️ Backlog"]);
+  });
 });
