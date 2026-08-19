@@ -1,7 +1,7 @@
 import { Action, Alert, confirmAlert, Icon, showToast, Toast } from "@raycast/api";
 import { FC, Fragment } from "react";
 import { playSound } from "../sound";
-import { archiveTask, markTaskComplete, markTaskInProgress } from "../storage";
+import { archiveTask, markTaskComplete, markTaskInProgress, markTaskTodo } from "../storage";
 import { Task } from "../types";
 import { EditTask } from "./EditTask";
 import { PromoteToLinear } from "./PromoteToLinear";
@@ -17,6 +17,7 @@ export const TaskEditMenu: FC<Props> = ({ task, refetchList }) => {
   // Promote to Linear is the one exception, since it's specifically about that difference.
   const isLocalOnly = task.syncState === "local";
   const isDone = task.stateType === "completed";
+  const isInProgress = task.stateType === "started";
 
   // A toggle, not a one-way action: pressing Complete again on an already-Done task means
   // "I need to reopen this," and In Progress is a more useful landing spot than Backlog —
@@ -42,15 +43,23 @@ export const TaskEditMenu: FC<Props> = ({ task, refetchList }) => {
     }
   };
 
+  // Same toggle shape as Mark as Complete: pressing this again on an already-in-progress
+  // task means "not working on this right now," and Todo is the natural landing spot.
   const handleMarkInProgress = async () => {
     try {
-      await markTaskInProgress(task.id);
-      refetchList();
-      await showToast({ style: Toast.Style.Success, title: "Marked task as in progress", message: task.title });
+      if (isInProgress) {
+        await markTaskTodo(task.id);
+        refetchList();
+        await showToast({ style: Toast.Style.Success, title: "Marked task as todo", message: task.title });
+      } else {
+        await markTaskInProgress(task.id);
+        refetchList();
+        await showToast({ style: Toast.Style.Success, title: "Marked task as in progress", message: task.title });
+      }
     } catch (e) {
       await showToast({
         style: Toast.Style.Failure,
-        title: "Failed to mark task as in progress",
+        title: isInProgress ? "Failed to mark task as todo" : "Failed to mark task as in progress",
         message: e instanceof Error ? e.message : undefined,
       });
     }
@@ -113,8 +122,8 @@ export const TaskEditMenu: FC<Props> = ({ task, refetchList }) => {
         onAction={handleComplete}
       />
       <Action
-        title="Mark as in Progress"
-        icon={Icon.Circle}
+        title={isInProgress ? "Mark as Todo" : "Mark as in Progress"}
+        icon={isInProgress ? Icon.Circle : Icon.CircleProgress50}
         shortcut={{
           macOS: { modifiers: ["cmd", "shift"], key: "p" },
           Windows: { modifiers: ["ctrl", "shift"], key: "p" },

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getCachedTasks, getCachedTeamStates, setCachedTasks } from "./repository/localCache";
 import { enqueueCreate, enqueueFieldUpdate } from "./repository/syncQueue";
-import { changeTaskState, createTask, markTaskComplete, markTaskInProgress } from "./storage";
+import { changeTaskState, createTask, markTaskComplete, markTaskInProgress, markTaskTodo } from "./storage";
 import { Task } from "./types";
 
 vi.mock("./repository/localCache", () => ({
@@ -161,6 +161,35 @@ describe("markTaskInProgress", () => {
 
     expect(setCachedTasks).toHaveBeenCalledWith([
       expect.objectContaining({ id: t.id, stateId: undefined, stateName: "In Progress", stateType: "started" }),
+    ]);
+    expect(enqueueFieldUpdate).not.toHaveBeenCalled();
+  });
+});
+
+describe("markTaskTodo", () => {
+  it("moves the task to its team's unstarted state locally and enqueues the Linear update", async () => {
+    const t = task({ teamId: "team-1", stateId: "start-id", stateName: "In Progress", stateType: "started" });
+    vi.mocked(getCachedTasks).mockResolvedValue([t]);
+    vi.mocked(getCachedTeamStates).mockResolvedValue(
+      new Map([["team-1", [{ id: "todo-id", name: "Todo", type: "unstarted", position: 0 }]]]),
+    );
+
+    await markTaskTodo(t.id);
+
+    expect(setCachedTasks).toHaveBeenCalledWith([
+      expect.objectContaining({ id: t.id, stateId: "todo-id", stateName: "Todo", stateType: "unstarted" }),
+    ]);
+    expect(enqueueFieldUpdate).toHaveBeenCalledWith(t.id, "stateId", "todo-id", "start-id");
+  });
+
+  it("moves a local-only task to LOCAL_STAGES' Todo without enqueueing a Linear update", async () => {
+    const t = task({ syncState: "local", stateId: undefined, stateName: "In Progress", stateType: "started" });
+    vi.mocked(getCachedTasks).mockResolvedValue([t]);
+
+    await markTaskTodo(t.id);
+
+    expect(setCachedTasks).toHaveBeenCalledWith([
+      expect.objectContaining({ id: t.id, stateId: undefined, stateName: "Todo", stateType: "unstarted" }),
     ]);
     expect(enqueueFieldUpdate).not.toHaveBeenCalled();
   });

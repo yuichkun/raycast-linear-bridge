@@ -76,6 +76,16 @@ export async function markTaskInProgress(taskId: string): Promise<void> {
   await moveTaskToState(cached, task, target);
 }
 
+// The other half of Mark as in Progress's toggle: reopening an in-progress task back to
+// its team's Todo-equivalent state (or LOCAL_STAGES' "Todo" for a local-only task).
+export async function markTaskTodo(taskId: string): Promise<void> {
+  const cached = await getCachedTasks();
+  const task = cached.find((t) => t.id === taskId);
+  if (!task) return;
+  const target = await resolveMoveTarget(task, "unstarted");
+  await moveTaskToState(cached, task, target);
+}
+
 // Complete/In Progress are the two most common transitions and get their own one-key
 // shortcuts; this is the general-purpose escape hatch for moving to any other state a
 // team has (Triage, Backlog, a custom state, or moving something back out of Done) — or,
