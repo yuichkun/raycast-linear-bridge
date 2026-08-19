@@ -16,6 +16,17 @@ const STATUS_TYPE_ORDER: Partial<Record<WorkflowStateType, number>> = {
   backlog: 3,
 };
 
+// Mirrors todo-buddy's emoji-prefixed section titles (⚠️ Outdated / 📌 Pinned / ✅ Done)
+// for at-a-glance scanning. Keyed by stateType rather than the exact state name so it
+// still applies no matter what a team calls its state (e.g. this workspace's "Pending"
+// and "In Progress" are both type "started" and both get 🚧).
+const STATUS_TYPE_EMOJI: Partial<Record<WorkflowStateType, string>> = {
+  started: "🚧",
+  unstarted: "📝",
+  triage: "📥",
+  backlog: "🗂️",
+};
+
 export type SectionKind = "outdated" | "complete" | "hidden" | "state";
 
 export function classifyTask(task: Task): SectionKind {
@@ -44,7 +55,7 @@ export type Section = {
 export function groupTasksBySection(tasks: Task[]): Section[] {
   const outdated: Task[] = [];
   const complete: Task[] = [];
-  const stateGroups = new Map<string, { sortKey: number; tasks: Task[] }>();
+  const stateGroups = new Map<string, { sortKey: number; stateType?: WorkflowStateType; tasks: Task[] }>();
 
   for (const task of tasks) {
     const kind = classifyTask(task);
@@ -72,13 +83,16 @@ export function groupTasksBySection(tasks: Task[]): Section[] {
       existing.tasks.push(task);
       existing.sortKey = Math.min(existing.sortKey, sortKey);
     } else {
-      stateGroups.set(key, { sortKey, tasks: [task] });
+      stateGroups.set(key, { sortKey, stateType: task.stateType, tasks: [task] });
     }
   }
 
   const stateSections: Section[] = [...stateGroups.entries()]
     .sort(([, a], [, b]) => a.sortKey - b.sortKey)
-    .map(([name, group]) => ({ key: name, title: name, tasks: group.tasks }));
+    .map(([name, group]) => {
+      const emoji = group.stateType ? STATUS_TYPE_EMOJI[group.stateType] : undefined;
+      return { key: name, title: emoji ? `${emoji} ${name}` : name, tasks: group.tasks };
+    });
 
   return [
     { key: "outdated", title: "⚠️ Outdated", tasks: outdated },

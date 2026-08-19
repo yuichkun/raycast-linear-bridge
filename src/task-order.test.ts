@@ -68,7 +68,7 @@ describe("groupTasksBySection", () => {
 
     expect(stateSections).toHaveLength(2);
     // Both are "started", so they sort by statePosition: In Progress (0) before Pending (1).
-    expect(stateSections.map((s) => s.title)).toEqual(["In Progress", "Pending"]);
+    expect(stateSections.map((s) => s.title)).toEqual(["🚧 In Progress", "🚧 Pending"]);
   });
 
   it("orders sections by urgency, not Linear's own board order: started -> unstarted -> triage -> backlog", () => {
@@ -83,7 +83,7 @@ describe("groupTasksBySection", () => {
     // What's already being worked on should surface above what hasn't been started,
     // which should surface above what's just sitting in the backlog — the reverse of
     // Linear's own backlog->done board column order.
-    expect(stateSections.map((s) => s.title)).toEqual(["In Progress", "Todo", "Triage", "Backlog"]);
+    expect(stateSections.map((s) => s.title)).toEqual(["🚧 In Progress", "📝 Todo", "📥 Triage", "🗂️ Backlog"]);
   });
 
   it("keeps overdue tasks in Outdated regardless of their state", () => {
@@ -122,7 +122,7 @@ describe("groupTasksBySection", () => {
     const stateSections = sections.filter((s) => s.key !== "outdated" && s.key !== "complete");
 
     expect(stateSections).toHaveLength(1);
-    expect(stateSections[0].title).toBe("Backlog");
+    expect(stateSections[0].title).toBe("🗂️ Backlog");
     expect(stateSections[0].tasks.map((t) => t.id).sort()).toEqual(["g", "s"]);
   });
 
@@ -152,6 +152,6 @@ describe("groupTasksBySection", () => {
 
     // Both "Pending" entries collapse to position 1 (the lower of 5 and 1), which still
     // sorts after "In Progress" (position 0) within the same "started" type.
-    expect(stateSections.map((s) => s.title)).toEqual(["In Progress", "Pending"]);
+    expect(stateSections.map((s) => s.title)).toEqual(["🚧 In Progress", "🚧 Pending"]);
   });
 });
