@@ -17,14 +17,17 @@ const STATUS_TYPE_ORDER: Partial<Record<WorkflowStateType, number>> = {
 };
 
 // Mirrors todo-buddy's emoji-prefixed section titles (⚠️ Outdated / 📌 Pinned / ✅ Done)
-// for at-a-glance scanning. Keyed by stateType rather than the exact state name so it
-// still applies no matter what a team calls its state (e.g. this workspace's "Pending"
-// and "In Progress" are both type "started" and both get 🚧).
-const STATUS_TYPE_EMOJI: Partial<Record<WorkflowStateType, string>> = {
-  started: "🚧",
-  unstarted: "📝",
-  triage: "📥",
-  backlog: "🗂️",
+// for at-a-glance scanning. A pool per type rather than one fixed emoji per type: a single
+// type can have multiple distinctly-named states in real workspaces (e.g. this workspace's
+// "Pending" and "In Progress" are both type "started"), and giving them the same emoji would
+// visually re-merge sections that were deliberately split apart to keep that distinction
+// visible. Sections are assigned emoji in display order, so the first "started" section on
+// screen gets the pool's first emoji, the second gets the next, etc.
+const STATUS_TYPE_EMOJI_POOL: Partial<Record<WorkflowStateType, string[]>> = {
+  started: ["🚧", "⏳", "🏃", "🔥"],
+  unstarted: ["📝", "🗒️", "📋"],
+  triage: ["📥", "🔍", "❓"],
+  backlog: ["🗂️", "📦", "🧊"],
 };
 
 export type SectionKind = "outdated" | "complete" | "hidden" | "state";
@@ -87,10 +90,17 @@ export function groupTasksBySection(tasks: Task[]): Section[] {
     }
   }
 
+  const emojiIndexByType = new Map<WorkflowStateType, number>();
   const stateSections: Section[] = [...stateGroups.entries()]
     .sort(([, a], [, b]) => a.sortKey - b.sortKey)
     .map(([name, group]) => {
-      const emoji = group.stateType ? STATUS_TYPE_EMOJI[group.stateType] : undefined;
+      const pool = group.stateType ? STATUS_TYPE_EMOJI_POOL[group.stateType] : undefined;
+      let emoji: string | undefined;
+      if (pool && pool.length > 0 && group.stateType) {
+        const index = emojiIndexByType.get(group.stateType) ?? 0;
+        emoji = pool[index % pool.length];
+        emojiIndexByType.set(group.stateType, index + 1);
+      }
       return { key: name, title: emoji ? `${emoji} ${name}` : name, tasks: group.tasks };
     });
 
