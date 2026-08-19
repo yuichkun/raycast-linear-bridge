@@ -101,6 +101,15 @@ export const TaskEditMenu: FC<Props> = ({ task, refetchList }) => {
         }}
         target={<EditTask task={task} refetchList={refetchList} />}
       />
+      {task.url && (
+        <Action.OpenInBrowser
+          url={task.url}
+          shortcut={{
+            macOS: { modifiers: ["cmd", "shift"], key: "o" },
+            Windows: { modifiers: ["ctrl", "shift"], key: "o" },
+          }}
+        />
+      )}
       {isLocalOnly && (
         <Action.Push
           title="Promote to Linear"
