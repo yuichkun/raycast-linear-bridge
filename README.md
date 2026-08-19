@@ -22,23 +22,23 @@ That's it — no OAuth, no separate "who am I" setting. Linear resolves the key'
 
 | Command | Mode | What it does |
 |---|---|---|
-| **List Tasks** | view | Main screen. Sections: Outdated (past-due, ignores search) → one section per Linear state actually in use (Backlog, Todo, Pending, In Progress, …) → Done. Detail panel is off by default (`⌘D` toggles it); `⌘⇧V` opens a full-screen detail view for any task. |
+| **List Tasks** | view | Main screen. Sections: Outdated (past-due, ignores search) → one section per Linear state actually in use (Backlog, Todo, Pending, In Progress, …) → Done. Pressing Enter on a task opens a full-screen detail view; the inline detail panel is off by default (`⌘D` toggles it). |
 | **Create Task** | view | Creates a task. **Local-only by default** — check "Save to Linear" to create a real Linear issue instead. |
 | **Archive Completed Tasks** | no-view | Archives every Done task (and drops local-only completed tasks from the cache) after a confirmation prompt. |
 | **Sync** | no-view, runs automatically every 5 minutes | Pushes any pending offline changes to Linear, then pulls the latest state. Can also be run manually from Raycast's root search. |
 
 ## Keyboard shortcuts (in List Tasks)
 
-All shortcuts use `⌘⇧` on macOS / `Ctrl⇧` on Windows, matching Todo Buddy's layout where the same action exists.
+`Enter` opens the full-screen detail view for the selected task. The rest use `⌘⇧` on macOS / `Ctrl⇧` on Windows, matching Todo Buddy's layout where the same action exists.
 
 | Shortcut | Action |
 |---|---|
-| `E` | Edit Task — one form for title, due date, priority, description, and (for Linear tasks) status and labels |
-| `C` | Mark as Complete |
-| `P` | Mark as In Progress |
-| `U` | Promote to Linear (local-only tasks only) |
-| `V` | View Full Details (a full-screen detail page, separate from the inline detail panel) |
-| `⌫` (Delete) | Archive Task |
+| `↵` (Enter) | View Task (full-screen detail) |
+| `⌘⇧E` | Edit Task — one form for title, due date, priority, description, and (for Linear tasks) status and labels |
+| `⌘⇧C` | Mark as Complete |
+| `⌘⇧P` | Mark as In Progress |
+| `⌘⇧U` | Promote to Linear (local-only tasks only) |
+| `⌘⇧⌫` | Archive Task |
 
 `⌘D` (no Shift) toggles the inline detail panel next to the list on and off.
 

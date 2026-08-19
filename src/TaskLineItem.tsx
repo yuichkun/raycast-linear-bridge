@@ -60,16 +60,12 @@ export const TaskLineItem: FC<Props> = ({ task, refetchList, isShowingDetail, on
       }
       actions={
         <ActionPanel title="Linear Bridge">
-          <TaskEditMenu task={task} refetchList={refetchList} />
           <Action.Push
-            title="View Full Details"
+            title="View Task"
             icon={Icon.Maximize}
-            shortcut={{
-              macOS: { modifiers: ["cmd", "shift"], key: "v" },
-              Windows: { modifiers: ["ctrl", "shift"], key: "v" },
-            }}
             target={<TaskDetailView task={task} refetchList={refetchList} />}
           />
+          <TaskEditMenu task={task} refetchList={refetchList} />
           <Action
             title={isShowingDetail ? "Hide Details" : "Show Details"}
             icon={Icon.Sidebar}
