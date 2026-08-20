@@ -35,6 +35,8 @@ That's it — no OAuth, no separate "who am I" setting. Linear resolves the key'
 |---|---|
 | `↵` (Enter) | View Task (full-screen detail) |
 | `⌘⇧E` | Edit Task — one form for title, due date, priority, description, and (for Linear tasks) status and labels |
+| `⌘⇧D` | Set Due Date — quick date picker, no need to open the full Edit Task form |
+| `⌘⇧S` | Change Status — inline submenu of the task's team states (or LOCAL_STAGES for local-only), no screen change |
 | `⌘⇧O` | Open in Browser (Linear tasks only — a local-only task has no Linear URL yet) |
 | `⌘⇧C` | Mark as Complete — toggles back to In Progress if the task is already Done |
 | `⌘⇧P` | Mark as In Progress — toggles back to Todo if the task is already In Progress |

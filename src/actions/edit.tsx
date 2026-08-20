@@ -1,8 +1,19 @@
-import { Action, Alert, confirmAlert, Icon, showToast, Toast } from "@raycast/api";
+import { Action, ActionPanel, Alert, confirmAlert, Icon, showToast, Toast } from "@raycast/api";
+import { useCachedPromise } from "@raycast/utils";
 import { FC, Fragment } from "react";
+import { formatDateOnly } from "../date";
+import { LOCAL_STAGES } from "../localStages";
 import { playSound } from "../sound";
-import { archiveTask, markTaskComplete, markTaskInProgress, markTaskTodo } from "../storage";
-import { Task } from "../types";
+import {
+  archiveTask,
+  changeTaskState,
+  markTaskComplete,
+  markTaskInProgress,
+  markTaskTodo,
+  retrieveStatesForTeam,
+  updateDueDate,
+} from "../storage";
+import { Task, WorkflowStateType } from "../types";
 import { EditTask } from "./EditTask";
 import { PromoteToLinear } from "./PromoteToLinear";
 
@@ -18,6 +29,26 @@ export const TaskEditMenu: FC<Props> = ({ task, refetchList }) => {
   const isLocalOnly = task.syncState === "local";
   const isDone = task.stateType === "completed";
   const isInProgress = task.stateType === "started";
+  const hasTeam = Boolean(task.teamId);
+
+  // Reads from the local cache (retrieveStatesForTeam), so opening this submenu is cheap
+  // even though it's mounted per row — it's not a network call. Local-only tasks skip the
+  // fetch entirely and use the fixed LOCAL_STAGES list instead.
+  const { data: teamStates, isLoading: isLoadingStates } = useCachedPromise(
+    (teamId: string | undefined) => (teamId ? retrieveStatesForTeam(teamId) : Promise.resolve([])),
+    [task.teamId],
+    { initialData: [] },
+  );
+  const statusOptions = hasTeam
+    ? [...teamStates]
+        .sort((a, b) => a.position - b.position)
+        .map((state) => ({
+          key: state.id,
+          name: state.name,
+          stateId: state.id,
+          stateType: state.type as WorkflowStateType,
+        }))
+    : LOCAL_STAGES.map((stage) => ({ key: stage.type, name: stage.name, stateId: undefined, stateType: stage.type }));
 
   // A toggle, not a one-way action: pressing Complete again on an already-Done task means
   // "I need to reopen this," and In Progress is a more useful landing spot than Backlog —
@@ -65,6 +96,35 @@ export const TaskEditMenu: FC<Props> = ({ task, refetchList }) => {
     }
   };
 
+  const handleUpdateDueDate = async (date: Date | null) => {
+    try {
+      const newDueDate = date ? formatDateOnly(date) : undefined;
+      await updateDueDate(task.id, newDueDate);
+      refetchList();
+      await showToast({ style: Toast.Style.Success, title: "Updated due date", message: task.title });
+    } catch (e) {
+      await showToast({
+        style: Toast.Style.Failure,
+        title: "Failed to update due date",
+        message: e instanceof Error ? e.message : undefined,
+      });
+    }
+  };
+
+  const handleChangeStatus = async (stateId: string | undefined, stateName: string, stateType: WorkflowStateType) => {
+    try {
+      await changeTaskState(task.id, stateId, stateName, stateType);
+      refetchList();
+      await showToast({ style: Toast.Style.Success, title: "Updated status", message: `${task.title} → ${stateName}` });
+    } catch (e) {
+      await showToast({
+        style: Toast.Style.Failure,
+        title: "Failed to update status",
+        message: e instanceof Error ? e.message : undefined,
+      });
+    }
+  };
+
   const handleArchive = async () => {
     const confirmed = await confirmAlert({
       title: "Archive Task",
@@ -87,9 +147,12 @@ export const TaskEditMenu: FC<Props> = ({ task, refetchList }) => {
     }
   };
 
-  // Flat actions rather than nested in an ActionPanel.Submenu: shortcuts on submenu-nested
-  // actions weren't firing reliably, and burying high-frequency actions (Complete, Archive)
-  // one level deep also made them harder to find via the actions list.
+  // Flat actions rather than nested in one big Edit submenu: shortcuts assigned to items
+  // nested *inside* a submenu weren't firing reliably, and burying high-frequency actions
+  // (Complete, Archive) one level deep also made them harder to find via the actions list.
+  // Change Status is a narrower exception: the submenu itself carries the shortcut (opens
+  // instantly, no items inside have their own shortcut), which is a different code path
+  // from the one that broke.
   return (
     <Fragment>
       <Action.Push
@@ -101,6 +164,32 @@ export const TaskEditMenu: FC<Props> = ({ task, refetchList }) => {
         }}
         target={<EditTask task={task} refetchList={refetchList} />}
       />
+      <Action.PickDate
+        title="Set Due Date"
+        type={Action.PickDate.Type.Date}
+        shortcut={{
+          macOS: { modifiers: ["cmd", "shift"], key: "d" },
+          Windows: { modifiers: ["ctrl", "shift"], key: "d" },
+        }}
+        onChange={handleUpdateDueDate}
+      />
+      <ActionPanel.Submenu
+        title="Change Status"
+        icon={Icon.Switch}
+        isLoading={hasTeam && isLoadingStates}
+        shortcut={{
+          macOS: { modifiers: ["cmd", "shift"], key: "s" },
+          Windows: { modifiers: ["ctrl", "shift"], key: "s" },
+        }}
+      >
+        {statusOptions.map((option) => (
+          <Action
+            key={option.key}
+            title={option.name}
+            onAction={() => handleChangeStatus(option.stateId, option.name, option.stateType)}
+          />
+        ))}
+      </ActionPanel.Submenu>
       {task.url && (
         <Action.OpenInBrowser
           url={task.url}
