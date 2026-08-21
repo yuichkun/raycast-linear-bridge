@@ -14,6 +14,7 @@ import {
 } from "./repository/localCache";
 import { findLocalStage } from "./localStages";
 import { fetchAssignedIssues, resolveStateOfType } from "./repository/linearApi";
+import { getVisibleTeamIds, setVisibleTeamIds } from "./repository/settings";
 import {
   ArchiveOp,
   enqueueArchive,
@@ -42,6 +43,18 @@ export async function retrieveStatesForTeam(teamId: string): Promise<CachedState
 
 export async function retrieveTeams(): Promise<CachedTeam[]> {
   return getCachedTeams();
+}
+
+// The visible-teams setting is a display-level filter only: sync always fetches and
+// pushes every team's issues regardless (the cache stays complete, so widening the filter
+// is instant and works offline), and Create Task / Promote to Linear offer every team as
+// a target. An empty selection means no filtering.
+export async function retrieveVisibleTeamIds(): Promise<string[]> {
+  return getVisibleTeamIds();
+}
+
+export async function updateVisibleTeamIds(teamIds: string[]): Promise<void> {
+  await setVisibleTeamIds(teamIds);
 }
 
 export async function refreshItemsFromLinear(): Promise<Task[]> {

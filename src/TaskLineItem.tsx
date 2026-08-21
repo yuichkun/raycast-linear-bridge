@@ -1,5 +1,6 @@
 import { Action, ActionPanel, Color, Icon, List } from "@raycast/api";
 import { FC } from "react";
+import { FilterTeamsAction } from "./actions/FilterTeams";
 import { TaskDetailView } from "./actions/TaskDetailView";
 import { TaskEditMenu } from "./actions/edit";
 import { PRIORITY_COLORS, PRIORITY_ICONS } from "./constants";
@@ -53,6 +54,7 @@ export const TaskLineItem: FC<Props> = ({ task, refetchList, isShowingDetail, on
             }}
             onAction={onToggleDetail}
           />
+          <FilterTeamsAction refetchList={refetchList} />
         </ActionPanel>
       }
     />

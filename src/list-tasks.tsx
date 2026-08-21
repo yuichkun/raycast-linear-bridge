@@ -1,14 +1,16 @@
-import { Color, Icon, List } from "@raycast/api";
+import { ActionPanel, Color, Icon, List } from "@raycast/api";
 import { useEffect, useMemo, useState } from "react";
+import { FilterTeamsAction } from "./actions/FilterTeams";
 import { useSearch } from "./hooks/useSearch";
 import { runSync } from "./sync/runSync";
-import { retrieveCachedItems } from "./storage";
-import { groupTasksBySection } from "./task-order";
+import { retrieveCachedItems, retrieveVisibleTeamIds } from "./storage";
+import { groupTasksBySection, restrictToVisibleTeams } from "./task-order";
 import { TaskLineItem } from "./TaskLineItem";
 import { Task } from "./types";
 
 export default function Command() {
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [visibleTeamIds, setVisibleTeamIds] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string>();
   // Off by default: a full detail pane next to every row crowds the list when you're just
@@ -21,16 +23,18 @@ export default function Command() {
     // (rather than only on mount) means changes reach Linear immediately instead of
     // waiting for the next time this command happens to be opened.
     runSync();
-    const cached = await retrieveCachedItems();
+    const [cached, visible] = await Promise.all([retrieveCachedItems(), retrieveVisibleTeamIds()]);
     setTasks(cached);
+    setVisibleTeamIds(visible);
   }
 
   useEffect(() => {
     let cancelled = false;
 
     async function load() {
-      const cached = await retrieveCachedItems();
+      const [cached, visible] = await Promise.all([retrieveCachedItems(), retrieveVisibleTeamIds()]);
       if (cancelled) return;
+      setVisibleTeamIds(visible);
       if (cached.length > 0) {
         setTasks(cached);
         setIsLoading(false);
@@ -60,10 +64,19 @@ export default function Command() {
 
   // Archived tasks stay in the cache (so a failed archive can be rolled back accurately)
   // but are never shown, whether the archive is still pending sync or already confirmed.
-  // Memoized so this is a stable reference across renders that don't change `tasks` —
-  // useSearch below depends on it, and a fresh array every render fed into an effect is
-  // exactly what caused an infinite render loop before.
-  const visibleTasks = useMemo(() => tasks.filter((task) => !task.archivedLocally), [tasks]);
+  // The team filter applies here too, before search — a filtered-out team's tasks
+  // shouldn't be reachable via the search index either. Memoized so this is a stable
+  // reference across renders that don't change the inputs — useSearch below depends on
+  // it, and a fresh array every render fed into an effect is exactly what caused an
+  // infinite render loop before.
+  const visibleTasks = useMemo(
+    () =>
+      restrictToVisibleTeams(
+        tasks.filter((task) => !task.archivedLocally),
+        visibleTeamIds,
+      ),
+    [tasks, visibleTeamIds],
+  );
 
   const { searchText, setSearchText, filteredItems } = useSearch(visibleTasks);
   const filteredTaskIds = new Set(filteredItems.map((task) => task.id));
@@ -87,6 +100,8 @@ export default function Command() {
     );
   }
 
+  const filterCount = visibleTeamIds.length;
+
   return (
     <List
       isLoading={isLoading}
@@ -94,7 +109,28 @@ export default function Command() {
       searchText={searchText}
       onSearchTextChange={setSearchText}
       searchBarPlaceholder="Search by anything. Task title, label, team, date, etc."
+      // Always-visible reminder that the list is filtered — a filter saved weeks ago must
+      // not read as "my tasks disappeared".
+      navigationTitle={
+        filterCount > 0 ? `List Tasks — filtered to ${filterCount} ${filterCount === 1 ? "team" : "teams"}` : undefined
+      }
     >
+      {/* Escape hatch for when the team filter (or an empty workspace) leaves nothing to
+          select: with no rows there'd otherwise be no ActionPanel to reach Filter Teams
+          from, locking the filter in place. */}
+      <List.EmptyView
+        title="No Tasks to Show"
+        description={
+          filterCount > 0
+            ? "The team filter is on — press ⌘⇧F to adjust which teams are shown."
+            : "Create a task to get going."
+        }
+        actions={
+          <ActionPanel>
+            <FilterTeamsAction refetchList={refetchList} />
+          </ActionPanel>
+        }
+      />
       {visibleSections.map((section) => (
         <List.Section key={section.key} title={section.title} subtitle={`${section.tasks.length} tasks`}>
           {section.tasks.map((task) => (

@@ -41,9 +41,21 @@ That's it — no OAuth, no separate "who am I" setting. Linear resolves the key'
 | `⌘⇧C` | Mark as Complete — toggles back to In Progress if the task is already Done |
 | `⌘⇧P` | Mark as In Progress — toggles back to Todo if the task is already In Progress |
 | `⌘⇧U` | Promote to Linear (local-only tasks only) |
+| `⌘⇧F` | Filter Teams — pick which teams' tasks are shown in the list (empty selection = all teams) |
 | `⌘⇧⌫` | Archive Task |
 
 `⌘D` (no Shift) toggles the inline detail panel next to the list on and off.
+
+## Team filter
+
+**Filter Teams** (`⌘⇧F`) opens a form where you pick the teams whose tasks List Tasks shows — an explicit allow-list. An empty selection shows every team. It's a display-level filter only:
+
+- With a selection active, every other team's tasks disappear from every section — Outdated and Done included — and from search results.
+- A team created later stays hidden until you add it to the selection.
+- Local-only tasks have no team and are always shown.
+- Sync still fetches and pushes every team's issues, so widening the filter is instant and works offline. Create Task and Promote to Linear also keep offering every team.
+- While the filter is active, the window title reads "List Tasks — filtered to N teams" so filtered-out tasks never look like lost tasks.
+- The selection is saved to the extension's support directory and survives restarts (and the "Clear Local Storage & Cache" debug action).
 
 ## Local-only tasks
 

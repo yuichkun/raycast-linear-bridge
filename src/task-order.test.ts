@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyTask, groupTasksBySection } from "./task-order";
+import { classifyTask, groupTasksBySection, restrictToVisibleTeams } from "./task-order";
 import { Task } from "./types";
 
 function task(id: string, overrides: Partial<Task> = {}): Task {
@@ -33,6 +33,37 @@ describe("classifyTask", () => {
   it("hides canceled and duplicate tasks", () => {
     expect(classifyTask(task("t5", { stateType: "canceled" }))).toBe("hidden");
     expect(classifyTask(task("t6", { stateType: "duplicate" }))).toBe("hidden");
+  });
+});
+
+describe("restrictToVisibleTeams", () => {
+  it("shows everything when the selection is empty", () => {
+    const tasks = [task("a", { teamId: "team-x" }), task("b")];
+
+    expect(restrictToVisibleTeams(tasks, [])).toEqual(tasks);
+  });
+
+  it("keeps only tasks from the selected teams", () => {
+    const tasks = [task("a", { teamId: "team-x" }), task("b", { teamId: "team-y" }), task("c", { teamId: "team-x" })];
+
+    const result = restrictToVisibleTeams(tasks, ["team-y"]);
+
+    expect(result.map((t) => t.id)).toEqual(["b"]);
+  });
+
+  it("always keeps local-only tasks with no teamId, whatever the selection", () => {
+    const localOnly = task("local", { syncState: "local", teamId: undefined });
+
+    const result = restrictToVisibleTeams([localOnly, task("a", { teamId: "team-x" })], ["team-y"]);
+
+    expect(result.map((t) => t.id)).toEqual(["local"]);
+  });
+
+  it("applies to completed and overdue tasks too, not just active sections", () => {
+    const doneFiltered = task("done", { teamId: "team-x", stateType: "completed" });
+    const overdueFiltered = task("overdue", { teamId: "team-x", dueDate: "2000-01-01" });
+
+    expect(restrictToVisibleTeams([doneFiltered, overdueFiltered], ["team-y"])).toEqual([]);
   });
 });
 

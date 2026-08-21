@@ -30,6 +30,20 @@ const STATUS_TYPE_EMOJI_POOL: Partial<Record<WorkflowStateType, string[]>> = {
   backlog: ["🗂️", "📦", "🧊"],
 };
 
+// Display-level team filter, as an explicit allow-list: with a selection active, only the
+// chosen teams' tasks are shown — a team missing from the selection (including one created
+// after the filter was saved) stays hidden until added. An empty selection means no
+// filtering at all, so the unconfigured default is the full list, not a blank one. Applies
+// to every section, Outdated and Done included — unlike a search query (a transient
+// lookup that deliberately never hides overdue tasks), the team filter is a statement
+// about what belongs in this view at all. Local-only tasks carry no teamId and are never
+// filtered out: narrowing to a team must not swallow personal don't-forget notes.
+export function restrictToVisibleTeams(tasks: Task[], visibleTeamIds: string[]): Task[] {
+  if (visibleTeamIds.length === 0) return tasks;
+  const visible = new Set(visibleTeamIds);
+  return tasks.filter((task) => !task.teamId || visible.has(task.teamId));
+}
+
 export type SectionKind = "outdated" | "complete" | "hidden" | "state";
 
 export function classifyTask(task: Task): SectionKind {
