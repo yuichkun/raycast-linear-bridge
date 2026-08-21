@@ -55,6 +55,18 @@ export type Section = {
   tasks: Task[];
 };
 
+// No due date sorts first, not last: a due date is what pulls a task toward the top on its
+// own, so a task without one would otherwise sink to the bottom of every section and be the
+// easiest thing to forget — the opposite of what's wanted for a "don't forget this" list.
+function sortByDueDate(tasks: Task[]): Task[] {
+  return [...tasks].sort((a, b) => {
+    if (!a.dueDate && !b.dueDate) return 0;
+    if (!a.dueDate) return -1;
+    if (!b.dueDate) return 1;
+    return a.dueDate.localeCompare(b.dueDate);
+  });
+}
+
 // Outdated and Complete are always present (even empty), mirroring todo-buddy's fixed
 // sections. Everything in between is derived from the actual Linear states in use, so a
 // task in "Pending" and a task in "In Progress" land in visibly separate sections instead
@@ -109,12 +121,12 @@ export function groupTasksBySection(tasks: Task[]): Section[] {
           emojiIndexByType.set(group.stateType, index + 1);
         }
       }
-      return { key: name, title: emoji ? `${emoji} ${name}` : name, tasks: group.tasks };
+      return { key: name, title: emoji ? `${emoji} ${name}` : name, tasks: sortByDueDate(group.tasks) };
     });
 
   return [
-    { key: "outdated", title: "⚠️ Outdated", tasks: outdated },
+    { key: "outdated", title: "⚠️ Outdated", tasks: sortByDueDate(outdated) },
     ...stateSections,
-    { key: "complete", title: "✅ Done", tasks: complete },
+    { key: "complete", title: "✅ Done", tasks: sortByDueDate(complete) },
   ];
 }
