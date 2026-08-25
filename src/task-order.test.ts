@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyTask, groupTasksBySection, restrictToVisibleTeams } from "./task-order";
+import { classifyTask, groupTasksBySection, restrictToDueHorizon, restrictToVisibleTeams } from "./task-order";
 import { Task } from "./types";
 
 function task(id: string, overrides: Partial<Task> = {}): Task {
@@ -64,6 +64,59 @@ describe("restrictToVisibleTeams", () => {
     const overdueFiltered = task("overdue", { teamId: "team-x", dueDate: "2000-01-01" });
 
     expect(restrictToVisibleTeams([doneFiltered, overdueFiltered], ["team-y"])).toEqual([]);
+  });
+});
+
+describe("restrictToDueHorizon", () => {
+  const now = new Date(2026, 7, 25); // Tue 2026-08-25, local time
+  const undated = task("undated");
+  const overdue = task("overdue", { dueDate: "2000-01-01" });
+  const today = task("today", { dueDate: "2026-08-25" });
+  const thisWeek = task("this-week", { dueDate: "2026-08-30" });
+  const nextWeek = task("next-week", { dueDate: "2026-08-31" });
+  const nextMonth = task("next-month", { dueDate: "2026-09-01" });
+  const all = [undated, overdue, today, thisWeek, nextWeek, nextMonth];
+
+  it("shows everything for all", () => {
+    expect(restrictToDueHorizon(all, "all", now)).toEqual(all);
+  });
+
+  it("keeps undated, overdue, and same-day tasks for today", () => {
+    expect(restrictToDueHorizon(all, "today", now).map((t) => t.id)).toEqual(["undated", "overdue", "today"]);
+  });
+
+  it("extends through Sunday for week", () => {
+    expect(restrictToDueHorizon(all, "week", now).map((t) => t.id)).toEqual([
+      "undated",
+      "overdue",
+      "today",
+      "this-week",
+    ]);
+  });
+
+  it("extends through the end of the month for month", () => {
+    expect(restrictToDueHorizon(all, "month", now).map((t) => t.id)).toEqual([
+      "undated",
+      "overdue",
+      "today",
+      "this-week",
+      "next-week",
+    ]);
+  });
+
+  it("hides completed tasks under any horizon, even ones due today, overdue, or undated", () => {
+    const doneToday = task("done-today", { stateType: "completed", dueDate: "2026-08-25" });
+    const doneOverdue = task("done-overdue", { stateType: "completed", dueDate: "2000-01-01" });
+    const doneUndated = task("done-undated", { stateType: "completed" });
+
+    expect(restrictToDueHorizon([doneToday, doneOverdue, doneUndated], "today", now)).toEqual([]);
+    expect(restrictToDueHorizon([doneToday, doneOverdue, doneUndated], "month", now)).toEqual([]);
+  });
+
+  it("keeps completed tasks under all", () => {
+    const doneUndated = task("done-undated", { stateType: "completed" });
+
+    expect(restrictToDueHorizon([doneUndated], "all", now)).toEqual([doneUndated]);
   });
 });
 

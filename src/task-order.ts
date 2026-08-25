@@ -1,4 +1,4 @@
-import { isPastDue } from "./date";
+import { DueHorizon, dueHorizonEnd, isDueWithinHorizon, isPastDue } from "./date";
 import { Task, WorkflowStateType } from "./types";
 
 const HIDDEN_STATE_TYPES = new Set<WorkflowStateType>(["canceled", "duplicate"]);
@@ -42,6 +42,19 @@ export function restrictToVisibleTeams(tasks: Task[], visibleTeamIds: string[]):
   if (visibleTeamIds.length === 0) return tasks;
   const visible = new Set(visibleTeamIds);
   return tasks.filter((task) => !task.teamId || visible.has(task.teamId));
+}
+
+// Display-level due-date filter, driven by the dropdown in List Tasks' search bar. Hides
+// tasks due after the horizon; undated and overdue tasks always stay (see
+// isDueWithinHorizon for why). Completed tasks are dropped outright under any horizon:
+// a horizon is a "what needs doing by then" lens, and done items aren't to-dos — plus,
+// since overdue and undated tasks always pass, the Done section would otherwise survive
+// nearly untouched (almost every finished task is either past its date or never had one).
+// Under "all" nothing is filtered and Done shows as usual.
+export function restrictToDueHorizon(tasks: Task[], horizon: DueHorizon, now: Date = new Date()): Task[] {
+  const horizonEnd = dueHorizonEnd(horizon, now);
+  if (!horizonEnd) return tasks;
+  return tasks.filter((task) => task.stateType !== "completed" && isDueWithinHorizon(task.dueDate, horizonEnd));
 }
 
 export type SectionKind = "outdated" | "complete" | "hidden" | "state";

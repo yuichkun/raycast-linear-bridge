@@ -57,6 +57,19 @@ That's it — no OAuth, no separate "who am I" setting. Linear resolves the key'
 - While the filter is active, the window title reads "List Tasks — filtered to N teams" so filtered-out tasks never look like lost tasks.
 - The selection is saved to the extension's support directory and survives restarts (and the "Clear Local Storage & Cache" debug action).
 
+## Due-date dropdown
+
+The dropdown at the right of the search bar (`⌘P` focuses it) limits List Tasks by due date. Each choice hides tasks due *after* its last day; everything else stays:
+
+| Choice | Shows tasks due… |
+|---|---|
+| **All** | any time (default) |
+| **Due Today** | today or earlier |
+| **Due This Week** | through this Sunday (weeks run Monday–Sunday) |
+| **Due This Month** | through the last day of the calendar month |
+
+Two things always stay visible regardless of the choice: **overdue tasks** (a past date is never after the horizon) and **tasks with no due date** — the latter on purpose, so undated tasks keep nudging you to give them a date instead of quietly vanishing from a "just today" view. **Done tasks are hidden under every choice except All**: a horizon is a "what needs doing by then" lens, and done items aren't to-dos. The choice persists the same way as the team filter, and it leaves the search box free, so you can keep "Due Today" on and still search for anything.
+
 ## Local-only tasks
 
 Every task you create starts out **local-only**: it lives entirely in Raycast's local storage and is never sent to Linear. This is deliberate — Todo Buddy's actual daily use includes a lot of quick, personal, "don't forget this" notes that would just be noise in a shared Linear workspace if every one of them became a real issue.

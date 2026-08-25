@@ -14,7 +14,8 @@ import {
 } from "./repository/localCache";
 import { findLocalStage } from "./localStages";
 import { fetchAssignedIssues, resolveStateOfType } from "./repository/linearApi";
-import { getVisibleTeamIds, setVisibleTeamIds } from "./repository/settings";
+import { getDueHorizon, getVisibleTeamIds, setDueHorizon, setVisibleTeamIds } from "./repository/settings";
+import { DueHorizon } from "./date";
 import {
   ArchiveOp,
   enqueueArchive,
@@ -55,6 +56,15 @@ export async function retrieveVisibleTeamIds(): Promise<string[]> {
 
 export async function updateVisibleTeamIds(teamIds: string[]): Promise<void> {
   await setVisibleTeamIds(teamIds);
+}
+
+// Same display-level nature as the team filter: only List Tasks' view changes.
+export async function retrieveDueHorizon(): Promise<DueHorizon> {
+  return getDueHorizon();
+}
+
+export async function updateDueHorizon(horizon: DueHorizon): Promise<void> {
+  await setDueHorizon(horizon);
 }
 
 export async function refreshItemsFromLinear(): Promise<Task[]> {
