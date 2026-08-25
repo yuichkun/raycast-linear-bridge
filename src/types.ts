@@ -64,4 +64,6 @@ export type IssueComment = {
   quotedText?: string;
   authorName: string;
   reactions: CommentReaction[];
+  // Written here but still queued for sync — not yet on Linear's side.
+  pending?: boolean;
 };

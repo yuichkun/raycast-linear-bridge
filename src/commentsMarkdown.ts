@@ -70,6 +70,7 @@ function renderComment(
   formatDate: CommentDateFormatter,
 ): string {
   const header = [`**${comment.authorName}**`, formatDate(comment.createdAt)];
+  if (comment.pending) header.push("(pending sync)");
   if (comment.quotedText) header.push(`on “${previewQuote(comment.quotedText)}”`);
   if (comment.editedAt) header.push("(edited)");
   if (options.marker) header.push(options.marker);

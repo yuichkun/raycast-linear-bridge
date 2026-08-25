@@ -1,5 +1,93 @@
-import { describe, expect, it } from "vitest";
-import { RawCommentNode, resolveStateOfType, toIssueComment } from "./linearApi";
+import type { LinearClient } from "@linear/sdk";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { getLinearClient } from "../linear/client";
+import { createComment, createIssue, RawCommentNode, resolveStateOfType, toIssueComment } from "./linearApi";
+
+vi.mock("../linear/client", () => ({
+  getLinearClient: vi.fn(),
+}));
+
+function mockClient(overrides: Record<string, unknown> = {}) {
+  const client = {
+    viewer: Promise.resolve({ id: "viewer-1" }),
+    createIssue: vi.fn(async () => ({ issue: Promise.resolve({ id: "temp-1" }) })),
+    issue: vi.fn(async () => ({ id: "temp-1" })),
+    createComment: vi.fn(async () => ({})),
+    comment: vi.fn(async () => ({ id: "op-1" })),
+    ...overrides,
+  };
+  vi.mocked(getLinearClient).mockReturnValue(client as unknown as LinearClient);
+  return client;
+}
+
+beforeEach(() => {
+  vi.mocked(getLinearClient).mockReset();
+});
+
+describe("createIssue", () => {
+  it("sends the tempId as the issue's id and assigns it to the viewer", async () => {
+    const client = mockClient();
+
+    const id = await createIssue("temp-1", { teamId: "team-1", title: "T" });
+
+    expect(client.createIssue).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "temp-1", teamId: "team-1", title: "T", assigneeId: "viewer-1" }),
+    );
+    expect(id).toBe("temp-1");
+  });
+
+  // The duplicate-issue guard: a create resent after Linear already accepted it (an
+  // overlapping sync in another process, or a teardown between send and dequeue) is
+  // refused because the id exists — which is success, not a failure to roll back.
+  it("treats a refused create as success when an issue with that id already exists", async () => {
+    mockClient({ createIssue: vi.fn(async () => Promise.reject(new Error("duplicate id"))) });
+
+    await expect(createIssue("temp-1", { teamId: "team-1", title: "T" })).resolves.toBe("temp-1");
+  });
+
+  it("rethrows a refused create when no issue with that id exists", async () => {
+    mockClient({
+      createIssue: vi.fn(async () => Promise.reject(new Error("Argument Validation Error"))),
+      issue: vi.fn(async () => Promise.reject(new Error("Entity not found"))),
+    });
+
+    await expect(createIssue("temp-1", { teamId: "team-1", title: "T" })).rejects.toThrow("Argument Validation Error");
+  });
+
+  it("surfaces a network failure during the existence check instead of guessing", async () => {
+    mockClient({
+      createIssue: vi.fn(async () => Promise.reject(new Error("fetch failed"))),
+      issue: vi.fn(async () => Promise.reject(new Error("fetch failed"))),
+    });
+
+    await expect(createIssue("temp-1", { teamId: "team-1", title: "T" })).rejects.toThrow("fetch failed");
+  });
+});
+
+describe("createComment", () => {
+  it("sends the op id as the comment's id", async () => {
+    const client = mockClient();
+
+    await createComment("op-1", "issue-1", "hi");
+
+    expect(client.createComment).toHaveBeenCalledWith({ id: "op-1", issueId: "issue-1", body: "hi" });
+  });
+
+  it("treats a refused create as success when a comment with that id already exists", async () => {
+    mockClient({ createComment: vi.fn(async () => Promise.reject(new Error("duplicate id"))) });
+
+    await expect(createComment("op-1", "issue-1", "hi")).resolves.toBeUndefined();
+  });
+
+  it("rethrows a refused create when no comment with that id exists", async () => {
+    mockClient({
+      createComment: vi.fn(async () => Promise.reject(new Error("Argument Validation Error"))),
+      comment: vi.fn(async () => Promise.reject(new Error("Entity not found"))),
+    });
+
+    await expect(createComment("op-1", "issue-1", "hi")).rejects.toThrow("Argument Validation Error");
+  });
+});
 
 describe("resolveStateOfType", () => {
   // The bug this guards against: this workspace's "General" team has two started-type

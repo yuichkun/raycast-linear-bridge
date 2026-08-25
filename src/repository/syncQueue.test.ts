@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   dequeue,
   enqueueArchive,
+  enqueueComment,
   enqueueCreate,
   enqueueFieldUpdate,
   getPendingOpsForIssue,
@@ -51,6 +52,14 @@ describe("sync queue (moved to environment.supportPath)", () => {
     const queue = await getQueue();
 
     expect(queue.map((op) => op.type)).toEqual(["archive", "create"]);
+  });
+
+  it("enqueues a comment op carrying the body", async () => {
+    await enqueueComment("issue-1", "Looks done to me");
+
+    const [op] = await getQueue();
+
+    expect(op).toMatchObject({ type: "createComment", issueId: "issue-1", body: "Looks done to me" });
   });
 
   it("dequeues an op by id, leaving the rest", async () => {

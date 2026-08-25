@@ -14,6 +14,7 @@ import {
   updateDueDate,
 } from "../storage";
 import { Task, WorkflowStateType } from "../types";
+import { AddComment } from "./AddComment";
 import { EditTask } from "./EditTask";
 import { PromoteToLinear } from "./PromoteToLinear";
 
@@ -27,6 +28,9 @@ export const TaskEditMenu: FC<Props> = ({ task, refetchList }) => {
   // thing "local" changes is whether it exists in Linear, not what actions apply to it.
   // Promote to Linear is the one exception, since it's specifically about that difference.
   const isLocalOnly = task.syncState === "local";
+  // Comments need a real Linear issue to attach to — not a local-only task, and not one
+  // still waiting to be created (its id is a tempId until then).
+  const isSynced = task.syncState === "synced";
   const isDone = task.stateType === "completed";
   const isInProgress = task.stateType === "started";
   const hasTeam = Boolean(task.teamId);
@@ -190,6 +194,17 @@ export const TaskEditMenu: FC<Props> = ({ task, refetchList }) => {
           />
         ))}
       </ActionPanel.Submenu>
+      {isSynced && (
+        <Action.Push
+          title="Add Comment"
+          icon={Icon.SpeechBubble}
+          shortcut={{
+            macOS: { modifiers: ["cmd", "shift"], key: "m" },
+            Windows: { modifiers: ["ctrl", "shift"], key: "m" },
+          }}
+          target={<AddComment task={task} refetchList={refetchList} />}
+        />
+      )}
       {task.url && (
         <Action.OpenInBrowser
           url={task.url}

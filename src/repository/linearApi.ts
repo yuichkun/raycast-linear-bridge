@@ -1,6 +1,7 @@
 import { LinearClient } from "@linear/sdk";
 import { getLinearClient } from "../linear/client";
 import { CommentReaction, CreateIssueInput, IssueComment, Task, WorkflowStateType } from "../types";
+import { isNetworkError } from "./networkError";
 import { SyncOpField } from "./syncQueue";
 
 // Issue.state / Issue.team / Issue.labels() on the SDK's high-level Issue class each
@@ -214,18 +215,63 @@ export async function archiveIssue(issueId: string): Promise<void> {
   await client.archiveIssue(issueId);
 }
 
+// Same idempotency scheme as createIssue below: the queue op's own id (a UUID v4) becomes
+// the comment's id on Linear, so a comment op sent twice yields one comment, not two.
+export async function createComment(commentId: string, issueId: string, body: string): Promise<void> {
+  const client = getLinearClient();
+  try {
+    await client.createComment({ id: commentId, issueId, body });
+  } catch (error) {
+    if (await commentExists(client, commentId)) return;
+    throw error;
+  }
+}
+
 // Every issue this extension creates must be assigned to the key's own viewer — the
 // entire list is built on an `assignee: me` filter (fetchAllIssueNodes above), so an
 // unassigned issue would be created successfully and then immediately vanish from view on
 // the next sync. Resolved here (at actual sync time, always online) rather than passed in
 // from the caller, so it's not something a future call site can forget to set.
-export async function createIssue(input: CreateIssueInput): Promise<string> {
+//
+// The queued tempId doubles as Linear's issue id (IssueCreateInput.id takes a client-
+// supplied UUID v4). That makes creation idempotent: if the same op is ever sent twice —
+// two overlapping sync runs, or a process torn down after Linear created the issue but
+// before the op was dequeued — Linear refuses the second create, and the existence check
+// turns that refusal back into success. Without this, every resend was a fresh issue,
+// which is how a single Create Task produced two.
+export async function createIssue(tempId: string, input: CreateIssueInput): Promise<string> {
   const client = getLinearClient();
   const viewer = await client.viewer;
-  const payload = await client.createIssue({ ...input, assigneeId: viewer.id });
-  const issue = await payload.issue;
-  if (!issue) throw new Error("Linear did not return the created issue");
-  return issue.id;
+  try {
+    const payload = await client.createIssue({ ...input, id: tempId, assigneeId: viewer.id });
+    const issue = await payload.issue;
+    if (!issue) throw new Error("Linear did not return the created issue");
+    return issue.id;
+  } catch (error) {
+    if (await issueExists(client, tempId)) return tempId;
+    throw error;
+  }
+}
+
+async function issueExists(client: LinearClient, id: string): Promise<boolean> {
+  try {
+    await client.issue(id);
+    return true;
+  } catch (error) {
+    // Without a network there's no telling either way — surface that, don't guess "no".
+    if (isNetworkError(error)) throw error;
+    return false;
+  }
+}
+
+async function commentExists(client: LinearClient, id: string): Promise<boolean> {
+  try {
+    await client.comment({ id });
+    return true;
+  } catch (error) {
+    if (isNetworkError(error)) throw error;
+    return false;
+  }
 }
 
 // One request per page of a single issue's comments, with the author identities nested

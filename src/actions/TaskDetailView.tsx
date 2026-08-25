@@ -2,7 +2,7 @@ import { ActionPanel, Detail, useNavigation } from "@raycast/api";
 import { useCachedPromise } from "@raycast/utils";
 import { FC, useEffect } from "react";
 import { commentsMarkdown } from "../commentsMarkdown";
-import { fetchCommentsForTask, retrieveCachedItems } from "../storage";
+import { fetchCommentsForTask, retrieveCachedItems, retrievePendingCommentsForTask } from "../storage";
 import { taskDetailMarkdown, TaskMetadata } from "../TaskMetadata";
 import { TaskEditMenu } from "./edit";
 
@@ -43,11 +43,18 @@ export const TaskDetailView: FC<Props> = ({ taskId, refetchList }) => {
     async (id: string, synced: boolean) => (synced ? fetchCommentsForTask(id) : []),
     [taskId, isSynced],
   );
+  // Comments written here but not yet synced come from the local queue, so they show up
+  // the moment they're added — online or not — instead of looking lost until the next sync.
+  const { data: pendingComments, revalidate: revalidatePendingComments } = useCachedPromise(
+    retrievePendingCommentsForTask,
+    [taskId],
+  );
 
   const handleRefetch = () => {
     refetchList();
     revalidate();
     revalidateComments();
+    revalidatePendingComments();
   };
 
   // The task can disappear from the cache entirely (e.g. Archive Task on a local-only
@@ -64,11 +71,15 @@ export const TaskDetailView: FC<Props> = ({ taskId, refetchList }) => {
 
   let commentsSection = "";
   if (isSynced) {
+    const pending = pendingComments ?? [];
     if (comments) {
-      commentsSection = commentsMarkdown(comments);
+      commentsSection = commentsMarkdown([...comments, ...pending]);
       if (commentsError) commentsSection += "\n\n_Showing the last loaded comments — Linear is unreachable._";
     } else if (commentsError) {
-      commentsSection = "## Comments\n\n_Couldn't load comments — Linear is unreachable._";
+      commentsSection =
+        pending.length > 0
+          ? `${commentsMarkdown(pending)}\n\n_Couldn't load comments from Linear — only unsent ones are shown._`
+          : "## Comments\n\n_Couldn't load comments — Linear is unreachable._";
     } else {
       commentsSection = "## Comments\n\n_Loading comments…_";
     }

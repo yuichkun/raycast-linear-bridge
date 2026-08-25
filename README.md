@@ -37,6 +37,7 @@ That's it — no OAuth, no separate "who am I" setting. Linear resolves the key'
 | `⌘⇧E` | Edit Task — one form for title, due date, priority, description, and (for Linear tasks) status and labels |
 | `⌘⇧D` | Set Due Date — quick date picker, no need to open the full Edit Task form |
 | `⌘⇧S` | Change Status — inline submenu of the task's team states (or LOCAL_STAGES for local-only), no screen change |
+| `⌘⇧M` | Add Comment (Linear tasks only) — one text box, queued and synced like every other change |
 | `⌘⇧O` | Open in Browser (Linear tasks only — a local-only task has no Linear URL yet) |
 | `⌘⇧C` | Mark as Complete — toggles back to In Progress if the task is already Done |
 | `⌘⇧P` | Mark as In Progress — toggles back to Todo if the task is already In Progress |
@@ -76,6 +77,8 @@ The full-screen detail view (`Enter`) loads the issue's Linear comments below th
 
 Comments are fetched live when the view opens rather than kept in the offline cache. If Linear is unreachable, the last-loaded comments are shown when there are any. Local-only tasks have no Linear issue and therefore no comments section.
 
+**Add Comment** (`⌘⇧M`) opens a single text box (Markdown works). It's its own operation — independent of any status change — and goes through the same offline-first queue as every other mutation, so it returns instantly. Until the next sync delivers it, the comment appears in the detail view as **You · (pending sync)**. If Linear rejects it, the Sync command's toast includes the comment text so it isn't lost silently. Only tasks that already exist in Linear can take comments.
+
 ## Local-only tasks
 
 Every task you create starts out **local-only**: it lives entirely in Raycast's local storage and is never sent to Linear. This is deliberate — Todo Buddy's actual daily use includes a lot of quick, personal, "don't forget this" notes that would just be noise in a shared Linear workspace if every one of them became a real issue.
@@ -89,4 +92,5 @@ The only thing "local-only" changes is whether the task exists in Linear — not
 - Every mutation (complete, edit, archive, …) writes to a local cache immediately and returns — there is no waiting on a network request.
 - Changes are queued and pushed to Linear in the background, both right after you make them and on a 5-minute interval.
 - If you're offline, changes simply queue up until the next successful sync; nothing is lost.
+- Creating things is idempotent: a queued issue or comment carries a client-generated UUID that Linear adopts as its id, so a change sent twice (overlapping syncs, or a process torn down between sending and dequeuing) can never become a duplicate. Sync runs within one process are also serialized, with at most one follow-up run chained behind the current one.
 - Manual reordering and pinning — which existed in Todo Buddy — were deliberately dropped in favor of Linear's own per-state sections, since Linear's own manual ordering is shared workspace-wide and would otherwise quietly reorder things for your teammates too.

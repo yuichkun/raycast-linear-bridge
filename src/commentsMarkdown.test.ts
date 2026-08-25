@@ -97,6 +97,12 @@ describe("commentsMarkdown", () => {
     );
   });
 
+  it("marks a queued-but-unsent comment as pending", () => {
+    const pending = comment("op-1", { authorName: "You", pending: true, createdAt: "2026-08-24T00:00:00.000Z" });
+
+    expect(commentsMarkdown([comment("a"), pending], date)).toContain("- **You** · 2026-08-24 · (pending sync)  ");
+  });
+
   it("shows a reply whose parent is missing as its own root instead of dropping it", () => {
     const orphan = comment("r", { parentId: "gone" });
 

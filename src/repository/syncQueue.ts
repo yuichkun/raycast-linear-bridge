@@ -37,7 +37,18 @@ export type CreateIssueOp = {
   createdAt: string;
 };
 
-export type SyncOp = UpdateFieldOp | ArchiveOp | CreateIssueOp;
+// A comment is a new object on Linear's side rather than a field of the issue, so like
+// archive/create it gets its own op. `issueId` is always a real issue id here: comments
+// are only offered on synced tasks, so there's never a tempId to resolve first.
+export type CreateCommentOp = {
+  opId: string;
+  type: "createComment";
+  issueId: string;
+  body: string;
+  createdAt: string;
+};
+
+export type SyncOp = UpdateFieldOp | ArchiveOp | CreateIssueOp | CreateCommentOp;
 
 // Pending ops are irreplaceable the same way local-only tasks are: losing a queued create/
 // update/archive silently means "I did this but Linear never found out" — so this lives in
@@ -82,6 +93,12 @@ export async function enqueueArchive(issueId: string): Promise<void> {
 export async function enqueueCreate(tempId: string, input: CreateIssueInput): Promise<void> {
   const queue = await getQueue();
   queue.push({ opId: uuidv4(), type: "create", issueId: tempId, input, createdAt: new Date().toISOString() });
+  await setQueue(queue);
+}
+
+export async function enqueueComment(issueId: string, body: string): Promise<void> {
+  const queue = await getQueue();
+  queue.push({ opId: uuidv4(), type: "createComment", issueId, body, createdAt: new Date().toISOString() });
   await setQueue(queue);
 }
 

@@ -1,7 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { fetchAssignedIssues } from "./repository/linearApi";
 import { getCachedTasks, getCachedTeamStates, setCachedTasks } from "./repository/localCache";
-import { enqueueCreate, enqueueFieldUpdate } from "./repository/syncQueue";
-import { changeTaskState, createTask, markTaskComplete, markTaskInProgress, markTaskTodo } from "./storage";
+import {
+  enqueueComment,
+  enqueueCreate,
+  enqueueFieldUpdate,
+  getPendingOpsForIssue,
+  getQueue,
+} from "./repository/syncQueue";
+import {
+  addComment,
+  changeTaskState,
+  createTask,
+  markTaskComplete,
+  markTaskInProgress,
+  markTaskTodo,
+  refreshItemsFromLinear,
+  retrievePendingCommentsForTask,
+} from "./storage";
 import { Task } from "./types";
 
 vi.mock("./repository/localCache", () => ({
@@ -19,6 +35,7 @@ vi.mock("./repository/syncQueue", () => ({
   enqueueFieldUpdate: vi.fn(),
   enqueueArchive: vi.fn(),
   enqueueCreate: vi.fn(),
+  enqueueComment: vi.fn(),
   getQueue: vi.fn(async () => []),
   dequeue: vi.fn(),
   getPendingOpsForIssue: vi.fn(async () => []),
@@ -48,7 +65,76 @@ beforeEach(() => {
   vi.mocked(setCachedTasks).mockReset();
   vi.mocked(enqueueFieldUpdate).mockReset();
   vi.mocked(enqueueCreate).mockReset();
+  vi.mocked(enqueueComment).mockReset();
+  vi.mocked(getQueue).mockReset().mockResolvedValue([]);
+  vi.mocked(getPendingOpsForIssue).mockReset().mockResolvedValue([]);
   vi.mocked(getCachedTeamStates).mockReset().mockResolvedValue(new Map());
+});
+
+describe("addComment", () => {
+  it("queues a comment for a synced task without touching the cache", async () => {
+    vi.mocked(getCachedTasks).mockResolvedValue([task()]);
+
+    await addComment("t1", "Looks done to me");
+
+    expect(enqueueComment).toHaveBeenCalledWith("t1", "Looks done to me");
+    expect(setCachedTasks).not.toHaveBeenCalled();
+  });
+
+  it("refuses a local-only task, which has no Linear issue to comment on", async () => {
+    vi.mocked(getCachedTasks).mockResolvedValue([task({ syncState: "local" })]);
+
+    await expect(addComment("t1", "hi")).rejects.toThrow();
+    expect(enqueueComment).not.toHaveBeenCalled();
+  });
+
+  it("refuses a task still waiting to be created in Linear (its id is a tempId)", async () => {
+    vi.mocked(getCachedTasks).mockResolvedValue([task({ syncState: "pendingCreate" })]);
+
+    await expect(addComment("t1", "hi")).rejects.toThrow();
+    expect(enqueueComment).not.toHaveBeenCalled();
+  });
+});
+
+describe("retrievePendingCommentsForTask", () => {
+  it("maps queued comment ops to pending comments and ignores other ops", async () => {
+    vi.mocked(getPendingOpsForIssue).mockResolvedValue([
+      { opId: "op-1", type: "createComment", issueId: "t1", body: "first", createdAt: "2026-08-25T06:00:00.000Z" },
+      { opId: "op-2", type: "archive", issueId: "t1", createdAt: "2026-08-25T06:01:00.000Z" },
+    ]);
+
+    const pending = await retrievePendingCommentsForTask("t1");
+
+    expect(pending).toEqual([
+      {
+        id: "op-1",
+        body: "first",
+        createdAt: "2026-08-25T06:00:00.000Z",
+        authorName: "You",
+        reactions: [],
+        pending: true,
+      },
+    ]);
+  });
+});
+
+describe("refreshItemsFromLinear", () => {
+  it("does not treat a pending comment op as an archive when merging the pull", async () => {
+    vi.mocked(getCachedTasks).mockResolvedValue([]);
+    vi.mocked(fetchAssignedIssues).mockResolvedValue({
+      tasks: [task()],
+      teamLabels: new Map(),
+      teamStates: new Map(),
+      teams: [],
+    });
+    vi.mocked(getQueue).mockResolvedValue([
+      { opId: "op-1", type: "createComment", issueId: "t1", body: "hi", createdAt: "2026-08-25T06:00:00.000Z" },
+    ]);
+
+    const merged = await refreshItemsFromLinear();
+
+    expect(merged).toEqual([expect.objectContaining({ id: "t1", archivedLocally: false })]);
+  });
 });
 
 describe("createTask", () => {

@@ -18,9 +18,12 @@ import { getDueHorizon, getVisibleTeamIds, setDueHorizon, setVisibleTeamIds } fr
 import { DueHorizon } from "./date";
 import {
   ArchiveOp,
+  CreateCommentOp,
   enqueueArchive,
+  enqueueComment,
   enqueueCreate,
   enqueueFieldUpdate,
+  getPendingOpsForIssue,
   getQueue,
   SyncOp,
   SyncOpField,
@@ -71,6 +74,37 @@ export async function updateDueHorizon(horizon: DueHorizon): Promise<void> {
 // view is open, and one request per open (author identities nested in) is cheap.
 export async function fetchCommentsForTask(taskId: string): Promise<IssueComment[]> {
   return fetchIssueComments(taskId);
+}
+
+// Comments are only offered on synced tasks: a local-only task has no Linear issue to
+// attach one to, and a pendingCreate task's id is still a tempId that a comment op can't
+// resolve. The queue carries the comment to Linear; nothing changes in the tasks cache,
+// so there's nothing to roll back if Linear rejects it — that failure surfaces through
+// the Sync command's toast instead.
+export async function addComment(taskId: string, body: string): Promise<void> {
+  const cached = await getCachedTasks();
+  const task = cached.find((t) => t.id === taskId);
+  if (!task) throw new Error("Task not found");
+  if (task.syncState !== "synced") {
+    throw new Error(`"${task.title}" isn't in Linear yet, so it can't take comments`);
+  }
+  await enqueueComment(taskId, body);
+}
+
+// Queued-but-unsent comments, so the detail view can show what was just written instead
+// of making it look lost until the next sync goes through.
+export async function retrievePendingCommentsForTask(taskId: string): Promise<IssueComment[]> {
+  const ops = await getPendingOpsForIssue(taskId);
+  return ops
+    .filter((op): op is CreateCommentOp => op.type === "createComment")
+    .map((op) => ({
+      id: op.opId,
+      body: op.body,
+      createdAt: op.createdAt,
+      authorName: "You",
+      reactions: [],
+      pending: true,
+    }));
 }
 
 export async function refreshItemsFromLinear(): Promise<Task[]> {
@@ -352,6 +386,12 @@ export async function rollbackPendingOp(op: SyncOp): Promise<void> {
     return;
   }
 
+  if (op.type === "createComment") {
+    // Nothing optimistic was written to the cache for a comment; the queued text is
+    // dropped here and reported by the Sync command's toast.
+    return;
+  }
+
   const cached = await getCachedTasks();
   const updated = cached.map((task) => (task.id === op.issueId ? rollbackOpOnTask(task, op) : task));
   await setCachedTasks(updated);
@@ -375,13 +415,14 @@ function applyPendingOpsToAll(tasks: Task[], queue: SyncOp[]): Task[] {
   return tasks.map((task) => {
     const pendingOps = pendingByIssue.get(task.id);
     if (!pendingOps) return task;
-    // A "create" op never matches here: its issueId is a tempId that `tasks` (fetched
-    // fresh from Linear) can't contain yet, so this only ever sees updateField/archive.
-    return pendingOps.reduce(
-      (acc, op) =>
-        op.type === "updateField" ? applyOpToTask(acc, op.field, op.value) : { ...acc, archivedLocally: true },
-      task,
-    );
+    return pendingOps.reduce((acc, op) => {
+      if (op.type === "updateField") return applyOpToTask(acc, op.field, op.value);
+      if (op.type === "archive") return { ...acc, archivedLocally: true };
+      // A "create" op never matches here (its issueId is a tempId that `tasks`, fetched
+      // fresh from Linear, can't contain yet), and a pending comment changes nothing on
+      // the task itself — it must not fall through into the archive branch.
+      return acc;
+    }, task);
   });
 }
 
