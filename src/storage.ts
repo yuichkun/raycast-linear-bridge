@@ -13,7 +13,7 @@ import {
   setCachedTeamStates,
 } from "./repository/localCache";
 import { findLocalStage } from "./localStages";
-import { fetchAssignedIssues, resolveStateOfType } from "./repository/linearApi";
+import { fetchAssignedIssues, fetchIssueComments, resolveStateOfType } from "./repository/linearApi";
 import { getDueHorizon, getVisibleTeamIds, setDueHorizon, setVisibleTeamIds } from "./repository/settings";
 import { DueHorizon } from "./date";
 import {
@@ -26,7 +26,7 @@ import {
   SyncOpField,
   UpdateFieldOp,
 } from "./repository/syncQueue";
-import { CreateIssueInput, Task, WorkflowStateType } from "./types";
+import { CreateIssueInput, IssueComment, Task, WorkflowStateType } from "./types";
 
 export async function retrieveCachedItems(): Promise<Task[]> {
   return getCachedTasks();
@@ -65,6 +65,12 @@ export async function retrieveDueHorizon(): Promise<DueHorizon> {
 
 export async function updateDueHorizon(horizon: DueHorizon): Promise<void> {
   await setDueHorizon(horizon);
+}
+
+// Comments are read live rather than cached: they're only needed while a task's detail
+// view is open, and one request per open (author identities nested in) is cheap.
+export async function fetchCommentsForTask(taskId: string): Promise<IssueComment[]> {
+  return fetchIssueComments(taskId);
 }
 
 export async function refreshItemsFromLinear(): Promise<Task[]> {

@@ -45,3 +45,23 @@ export type CreateIssueInput = {
   stateId?: string;
   labelIds?: string[];
 };
+
+export type CommentReaction = { emoji: string; count: number };
+
+// A Linear issue comment, flattened for display. Threads are one level deep by Linear's
+// model: a reply's parentId points at the thread's root comment, never at another reply.
+export type IssueComment = {
+  id: string;
+  body: string;
+  createdAt: string;
+  editedAt?: string;
+  parentId?: string;
+  // Set on a thread's root once the thread is resolved; resolvingCommentId names the
+  // reply that was marked as the resolution, when a specific one was.
+  resolvedAt?: string;
+  resolvingCommentId?: string;
+  // Inline comments are anchored to a snippet of the issue description.
+  quotedText?: string;
+  authorName: string;
+  reactions: CommentReaction[];
+};

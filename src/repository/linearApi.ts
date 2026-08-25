@@ -1,6 +1,6 @@
 import { LinearClient } from "@linear/sdk";
 import { getLinearClient } from "../linear/client";
-import { CreateIssueInput, Task, WorkflowStateType } from "../types";
+import { CommentReaction, CreateIssueInput, IssueComment, Task, WorkflowStateType } from "../types";
 import { SyncOpField } from "./syncQueue";
 
 // Issue.state / Issue.team / Issue.labels() on the SDK's high-level Issue class each
@@ -226,4 +226,118 @@ export async function createIssue(input: CreateIssueInput): Promise<string> {
   const issue = await payload.issue;
   if (!issue) throw new Error("Linear did not return the created issue");
   return issue.id;
+}
+
+// One request per page of a single issue's comments, with the author identities nested
+// in — the SDK's comment.user / .botActor / .externalUser getters would each be a
+// separate request, the same N+1 shape ISSUES_QUERY avoids.
+const ISSUE_COMMENTS_QUERY = `
+  query IssueComments($id: String!, $first: Int, $after: String) {
+    issue(id: $id) {
+      comments(first: $first, after: $after) {
+        nodes {
+          id
+          body
+          createdAt
+          editedAt
+          parentId
+          resolvedAt
+          resolvingCommentId
+          quotedText
+          reactions {
+            emoji
+          }
+          user {
+            name
+            displayName
+          }
+          botActor {
+            name
+            userDisplayName
+          }
+          externalUser {
+            name
+            displayName
+          }
+        }
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+      }
+    }
+  }
+`;
+
+export type RawCommentNode = {
+  id: string;
+  body: string;
+  createdAt: string;
+  editedAt: string | null;
+  parentId: string | null;
+  resolvedAt: string | null;
+  resolvingCommentId: string | null;
+  quotedText: string | null;
+  reactions: { emoji: string }[];
+  user: { name: string; displayName: string } | null;
+  botActor: { name: string | null; userDisplayName: string | null } | null;
+  externalUser: { name: string; displayName: string } | null;
+};
+
+type IssueCommentsQueryResult = {
+  issue: {
+    comments: {
+      nodes: RawCommentNode[];
+      pageInfo: { hasNextPage: boolean; endCursor: string | null };
+    };
+  };
+};
+
+// A comment has exactly one author identity: a workspace user, a bot (Linear Agent, an
+// integration), or an external person on a synced Slack/email thread. All three have to
+// be handled, or that kind of comment renders with a blank author.
+function resolveAuthorName(node: RawCommentNode): string {
+  if (node.user) return node.user.name || node.user.displayName;
+  if (node.botActor) return node.botActor.name || node.botActor.userDisplayName || "Bot";
+  if (node.externalUser) return node.externalUser.name || node.externalUser.displayName;
+  return "Unknown";
+}
+
+function countReactions(reactions: { emoji: string }[]): CommentReaction[] {
+  const counts = new Map<string, number>();
+  for (const { emoji } of reactions) counts.set(emoji, (counts.get(emoji) ?? 0) + 1);
+  return [...counts.entries()].map(([emoji, count]) => ({ emoji, count }));
+}
+
+export function toIssueComment(node: RawCommentNode): IssueComment {
+  return {
+    id: node.id,
+    body: node.body,
+    createdAt: node.createdAt,
+    editedAt: node.editedAt ?? undefined,
+    parentId: node.parentId ?? undefined,
+    resolvedAt: node.resolvedAt ?? undefined,
+    resolvingCommentId: node.resolvingCommentId ?? undefined,
+    quotedText: node.quotedText ?? undefined,
+    authorName: resolveAuthorName(node),
+    reactions: countReactions(node.reactions),
+  };
+}
+
+export async function fetchIssueComments(issueId: string): Promise<IssueComment[]> {
+  const client = getLinearClient();
+  const nodes: RawCommentNode[] = [];
+  let after: string | undefined;
+
+  for (;;) {
+    const result = await client.client.request<IssueCommentsQueryResult, Record<string, unknown>>(
+      ISSUE_COMMENTS_QUERY,
+      { id: issueId, first: 50, after },
+    );
+    nodes.push(...result.issue.comments.nodes);
+    if (!result.issue.comments.pageInfo.hasNextPage) break;
+    after = result.issue.comments.pageInfo.endCursor ?? undefined;
+  }
+
+  return nodes.map(toIssueComment);
 }

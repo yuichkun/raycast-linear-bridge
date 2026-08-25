@@ -70,6 +70,12 @@ The dropdown at the right of the search bar (`⌘P` focuses it) limits List Task
 
 Two things always stay visible regardless of the choice: **overdue tasks** (a past date is never after the horizon) and **tasks with no due date** — the latter on purpose, so undated tasks keep nudging you to give them a date instead of quietly vanishing from a "just today" view. **Done tasks are hidden under every choice except All**: a horizon is a "what needs doing by then" lens, and done items aren't to-dos. The choice persists the same way as the team filter, and it leaves the search box free, so you can keep "Due Today" on and still search for anything.
 
+## Comments
+
+The full-screen detail view (`Enter`) loads the issue's Linear comments below the description as a nested list. They follow Linear's own model: a thread is a root comment plus its replies, shown as nested items (`↳`); a resolved thread is marked `✓ Resolved` on its root and `✓ Resolution` on the reply that settled it; an inline comment shows the description snippet it's anchored to; edits and emoji reactions are noted on the header line. Timestamps are short — just the time for today's comments, month/day for this year, the full date otherwise. Authors can be workspace users, bots (Linear Agent, integrations), or external people on synced Slack/email threads.
+
+Comments are fetched live when the view opens rather than kept in the offline cache. If Linear is unreachable, the last-loaded comments are shown when there are any. Local-only tasks have no Linear issue and therefore no comments section.
+
 ## Local-only tasks
 
 Every task you create starts out **local-only**: it lives entirely in Raycast's local storage and is never sent to Linear. This is deliberate — Todo Buddy's actual daily use includes a lot of quick, personal, "don't forget this" notes that would just be noise in a shared Linear workspace if every one of them became a real issue.
