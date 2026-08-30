@@ -1,6 +1,6 @@
 {
   "$schema": "https://www.raycast.com/schemas/extension.json",
-  "name": "raycast-linear-bridge",
+  "name": "linear-bridge",
   "title": "Linear Bridge",
   "description": "A fast, offline-first, keyboard-driven task list for Raycast backed by Linear",
   "icon": "command-icon.png",
@@ -9,6 +9,8 @@
     "Productivity"
   ],
   "license": "MIT",
+  "owner": "escentier",
+  "access": "private",
   "commands": [
     {
       "name": "list-tasks",
