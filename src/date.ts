@@ -8,13 +8,20 @@ export function formatDateOnly(date: Date): string {
   return `${year}-${month}-${day}`;
 }
 
-// How far ahead the list looks: tasks due after the horizon's last day are hidden. Week is
-// Monday–Sunday and month is the calendar month — matching how deadlines actually get
-// phrased ("今週中", "今月中") rather than a rolling N-day window, and matching this
-// workspace's month-end/month-start billing rhythm.
-export type DueHorizon = "all" | "today" | "week" | "month";
+// How far ahead the list looks: tasks due after the horizon's last day are hidden. The
+// windows are rolling (today + N days, inclusive), not calendar periods: a "this week"
+// that ends on Sunday hides Monday's deadline when opened on Sunday night, and a "this
+// month" that ends on the 31st hides the 1st — blind at exactly the moments a near
+// deadline matters most. A fixed N also has no month-length edge cases to get wrong.
+export type DueHorizon = "all" | "today" | "7days" | "30days";
 
-export const DUE_HORIZONS: DueHorizon[] = ["all", "today", "week", "month"];
+export const DUE_HORIZONS: DueHorizon[] = ["all", "today", "7days", "30days"];
+
+const HORIZON_DAYS: Record<Exclude<DueHorizon, "all">, number> = {
+  today: 0,
+  "7days": 7,
+  "30days": 30,
+};
 
 // Anything unrecognized (a stale persisted value, say) falls back to showing everything —
 // the safe failure mode for a filter is to not filter.
@@ -23,23 +30,13 @@ export function parseDueHorizon(value: string | undefined): DueHorizon {
 }
 
 // Last calendar day (YYYY-MM-DD) a task may be due and still fall inside the horizon, or
-// undefined for "all".
+// undefined for "all". Date#setDate carries overflow into the next month/year itself, so
+// month lengths, leap days, and year ends need no special handling here.
 export function dueHorizonEnd(horizon: DueHorizon, now: Date = new Date()): string | undefined {
-  switch (horizon) {
-    case "all":
-      return undefined;
-    case "today":
-      return formatDateOnly(now);
-    case "week": {
-      // getDay(): 0 = Sunday … 6 = Saturday. Sunday closes the week, so it maps to 0 days ahead.
-      const end = new Date(now);
-      end.setDate(end.getDate() + ((7 - end.getDay()) % 7));
-      return formatDateOnly(end);
-    }
-    case "month":
-      // Day 0 of the next month is the last day of this one.
-      return formatDateOnly(new Date(now.getFullYear(), now.getMonth() + 1, 0));
-  }
+  if (horizon === "all") return undefined;
+  const end = new Date(now);
+  end.setDate(end.getDate() + HORIZON_DAYS[horizon]);
+  return formatDateOnly(end);
 }
 
 // No due date always passes: keeping undated tasks visible under every horizon is

@@ -41,9 +41,15 @@ describe("due horizon", () => {
   });
 
   it("round-trips the chosen horizon", async () => {
-    await setDueHorizon("week");
+    await setDueHorizon("7days");
 
-    expect(await getDueHorizon()).toBe("week");
+    expect(await getDueHorizon()).toBe("7days");
+  });
+
+  it("falls back to all for a horizon value from before the rolling windows", async () => {
+    await writeFile(join(dir, "settings.json"), JSON.stringify({ visibleTeamIds: [], dueHorizon: "week" }));
+
+    expect(await getDueHorizon()).toBe("all");
   });
 
   it("falls back to all when the stored value is unrecognized", async () => {
@@ -56,9 +62,9 @@ describe("due horizon", () => {
 describe("settings file", () => {
   it("keeps the other setting intact when one is saved", async () => {
     await setVisibleTeamIds(["team-a"]);
-    await setDueHorizon("month");
+    await setDueHorizon("30days");
 
     expect(await getVisibleTeamIds()).toEqual(["team-a"]);
-    expect(await getDueHorizon()).toBe("month");
+    expect(await getDueHorizon()).toBe("30days");
   });
 });

@@ -66,8 +66,10 @@ The dropdown at the right of the search bar (`⌘P` focuses it) limits List Task
 |---|---|
 | **All** | any time (default) |
 | **Due Today** | today or earlier |
-| **Due This Week** | through this Sunday (weeks run Monday–Sunday) |
-| **Due This Month** | through the last day of the calendar month |
+| **Due Within 7 Days** | through today + 7 days, inclusive |
+| **Due Within 30 Days** | through today + 30 days, inclusive |
+
+The windows are rolling, not calendar periods, on purpose: a "this week" that ends on Sunday hides Monday's deadline when you open the list on Sunday night, and a "this month" that ends on the 31st hides the 1st — blind exactly when a near deadline matters most. A fixed 30 days (rather than "the same day next month") also means there are no month-length edge cases.
 
 Two things always stay visible regardless of the choice: **overdue tasks** (a past date is never after the horizon) and **tasks with no due date** — the latter on purpose, so undated tasks keep nudging you to give them a date instead of quietly vanishing from a "just today" view. **Done tasks are hidden under every choice except All**: a horizon is a "what needs doing by then" lens, and done items aren't to-dos. The choice persists the same way as the team filter, and it leaves the search box free, so you can keep "Due Today" on and still search for anything.
 

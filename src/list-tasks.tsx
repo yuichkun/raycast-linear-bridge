@@ -12,8 +12,8 @@ import { Task } from "./types";
 const DUE_HORIZON_TITLES: Record<DueHorizon, string> = {
   all: "All",
   today: "Due Today",
-  week: "Due This Week",
-  month: "Due This Month",
+  "7days": "Due Within 7 Days",
+  "30days": "Due Within 30 Days",
 };
 
 export default function Command() {
