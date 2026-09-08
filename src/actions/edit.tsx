@@ -1,7 +1,10 @@
 import { Action, ActionPanel, Alert, confirmAlert, Icon, showToast, Toast } from "@raycast/api";
+import type { Keyboard } from "@raycast/api";
 import { useCachedPromise } from "@raycast/utils";
 import { FC, Fragment } from "react";
 import { formatDateOnly } from "../date";
+import { useLinearApp } from "../hooks/useLinearApp";
+import { toLinearDeepLink } from "../linearApp";
 import { LOCAL_STAGES } from "../localStages";
 import { playSound } from "../sound";
 import {
@@ -23,6 +26,14 @@ type Props = {
   refetchList: () => void;
 };
 
+// One shortcut for both ways of opening the issue: the desktop app when it's installed,
+// the browser otherwise. The app gets the linear:// form of the URL (see toLinearDeepLink);
+// the browser gets the https one.
+const OPEN_ISSUE_SHORTCUT: Keyboard.Shortcut = {
+  macOS: { modifiers: ["cmd", "shift"], key: "o" },
+  Windows: { modifiers: ["ctrl", "shift"], key: "o" },
+};
+
 export const TaskEditMenu: FC<Props> = ({ task, refetchList }) => {
   // Local-only tasks have a real stage (LOCAL_STAGES) just like any other task — the only
   // thing "local" changes is whether it exists in Linear, not what actions apply to it.
@@ -34,6 +45,7 @@ export const TaskEditMenu: FC<Props> = ({ task, refetchList }) => {
   const isDone = task.stateType === "completed";
   const isInProgress = task.stateType === "started";
   const hasTeam = Boolean(task.teamId);
+  const linearApp = useLinearApp();
 
   // Reads from the local cache (retrieveStatesForTeam), so opening this submenu is cheap
   // even though it's mounted per row — it's not a network call. Local-only tasks skip the
@@ -205,15 +217,18 @@ export const TaskEditMenu: FC<Props> = ({ task, refetchList }) => {
           target={<AddComment task={task} refetchList={refetchList} />}
         />
       )}
-      {task.url && (
-        <Action.OpenInBrowser
-          url={task.url}
-          shortcut={{
-            macOS: { modifiers: ["cmd", "shift"], key: "o" },
-            Windows: { modifiers: ["ctrl", "shift"], key: "o" },
-          }}
-        />
-      )}
+      {task.url &&
+        (linearApp ? (
+          <Action.Open
+            title="Open in Linear"
+            icon={{ fileIcon: linearApp.path }}
+            target={toLinearDeepLink(task.url)}
+            application={linearApp}
+            shortcut={OPEN_ISSUE_SHORTCUT}
+          />
+        ) : (
+          <Action.OpenInBrowser url={task.url} shortcut={OPEN_ISSUE_SHORTCUT} />
+        ))}
       {isLocalOnly && (
         <Action.Push
           title="Promote to Linear"
