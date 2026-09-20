@@ -1,27 +1,70 @@
 import { describe, expect, it, vi } from "vitest";
-import { findLinearApp, locateLinearApp, LocateLinearAppDeps, toLinearDeepLink } from "./linearApp";
+import {
+  findLinearAppByBundleId,
+  findLinearAppOnWindows,
+  locateLinearApp,
+  LocateLinearAppDeps,
+  toLinearDeepLink,
+} from "./linearApp";
 
 const chrome = { name: "Google Chrome", path: "/Applications/Google Chrome.app", bundleId: "com.google.Chrome" };
 const linear = { name: "Linear", path: "/Applications/Linear.app", bundleId: "com.linear" };
 const HOME = "/Users/me";
 
-describe("findLinearApp", () => {
+// Windows fixtures. The App ID values are representative of the two shapes Windows uses,
+// not values read off a real install — Linear does not publish its App ID, which is why
+// findLinearAppOnWindows matches a segment rather than one exact string.
+const edge = { name: "Microsoft Edge", path: "C:/Program Files/Microsoft/Edge/edge.exe", windowsAppId: "MSEdge" };
+const linearWin = {
+  name: "Linear",
+  path: "C:/Users/me/AppData/Local/Programs/Linear/Linear.exe",
+  windowsAppId: "com.squirrel.Linear.Linear",
+};
+
+describe("findLinearAppByBundleId", () => {
   it("finds the desktop app by its bundle id", () => {
-    expect(findLinearApp([chrome, linear])).toBe(linear);
+    expect(findLinearAppByBundleId([chrome, linear])).toBe(linear);
   });
 
   it("matches on bundle id even when the app is named differently", () => {
     const renamed = { ...linear, name: "Linear Beta" };
-    expect(findLinearApp([chrome, renamed])).toBe(renamed);
+    expect(findLinearAppByBundleId([chrome, renamed])).toBe(renamed);
   });
 
   it("ignores an app that is merely named Linear", () => {
     const impostor = { name: "Linear", path: "/Applications/Other.app", bundleId: "com.example.lookalike" };
-    expect(findLinearApp([chrome, impostor])).toBeNull();
+    expect(findLinearAppByBundleId([chrome, impostor])).toBeNull();
   });
 
   it("returns null for an empty list", () => {
-    expect(findLinearApp([])).toBeNull();
+    expect(findLinearAppByBundleId([])).toBeNull();
+  });
+});
+
+describe("findLinearAppOnWindows", () => {
+  it("finds the desktop app by a Windows App ID segment", () => {
+    expect(findLinearAppOnWindows([edge, linearWin])).toBe(linearWin);
+  });
+
+  it("matches a packaged App ID too", () => {
+    const packaged = { ...linearWin, name: "Linear Desktop", windowsAppId: "Linear_8wekyb3d8bbwe!App" };
+    expect(findLinearAppOnWindows([edge, packaged])).toBe(packaged);
+  });
+
+  it("falls back to the display name when there is no App ID", () => {
+    const noAppId = { name: "Linear", path: "C:/Apps/Linear/Linear.exe" };
+    expect(findLinearAppOnWindows([edge, noAppId])).toBe(noAppId);
+  });
+
+  // The macOS path can afford an exact bundle id; Windows cannot, so the segment match is
+  // the thing keeping a same-prefixed product from being picked up by mistake.
+  it("ignores a product whose name merely starts with Linear", () => {
+    const curve = { name: "Linearity Curve", path: "C:/Apps/Curve.exe", windowsAppId: "com.linearity.curve" };
+    expect(findLinearAppOnWindows([edge, curve])).toBeNull();
+  });
+
+  it("returns null for an empty list", () => {
+    expect(findLinearAppOnWindows([])).toBeNull();
   });
 });
 
@@ -42,8 +85,26 @@ describe("locateLinearApp", () => {
     };
   }
 
-  it("returns null on Windows without looking anything up", async () => {
-    const d = deps({ platform: "win32" });
+  it("uses the unscoped list on Windows, without probing any path", async () => {
+    const d = deps({
+      platform: "win32",
+      exists: () => {
+        throw new Error("Windows must not probe install paths");
+      },
+      getApplications: vi.fn(async () => [edge, linearWin]),
+    });
+    expect(await locateLinearApp(d)).toBe(linearWin);
+    expect(d.getApplications).toHaveBeenCalledTimes(1);
+    expect(d.getApplications).toHaveBeenCalledWith();
+  });
+
+  it("returns null on Windows when the app is not installed", async () => {
+    const d = deps({ platform: "win32", getApplications: vi.fn(async () => [edge]) });
+    expect(await locateLinearApp(d)).toBeNull();
+  });
+
+  it("returns null on a platform that is neither macOS nor Windows", async () => {
+    const d = deps({ platform: "linux" });
     expect(await locateLinearApp(d)).toBeNull();
     expect(d.getApplications).not.toHaveBeenCalled();
   });
