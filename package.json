@@ -5,6 +5,10 @@
   "description": "A fast, offline-first, keyboard-driven task list for Raycast backed by Linear",
   "icon": "command-icon.png",
   "author": "yuichkun",
+  "platforms": [
+    "macOS",
+    "Windows"
+  ],
   "categories": [
     "Productivity"
   ],
