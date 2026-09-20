@@ -193,6 +193,10 @@ export const TaskEditMenu: FC<Props> = ({ task, refetchList }) => {
         title="Change Status"
         icon={Icon.Switch}
         isLoading={hasTeam && isLoadingStates}
+        // Deliberately not Keyboard.Shortcut.Common.Duplicate: only its Windows binding
+        // (ctrl+shift+S) matches ours, and adopting the Common would move macOS to ⌘D,
+        // which Show/Hide Details already owns. "Duplicate" is the wrong verb here anyway.
+        // eslint-disable-next-line @raycast/prefer-common-shortcut
         shortcut={{
           macOS: { modifiers: ["cmd", "shift"], key: "s" },
           Windows: { modifiers: ["ctrl", "shift"], key: "s" },
@@ -243,6 +247,9 @@ export const TaskEditMenu: FC<Props> = ({ task, refetchList }) => {
       <Action
         title={isDone ? "Mark as in Progress" : "Mark as Complete"}
         icon={isDone ? Icon.Circle : Icon.CheckCircle}
+        // Deliberately not Keyboard.Shortcut.Common.Copy: the bindings are identical on
+        // both platforms, but this action completes a task rather than copying anything.
+        // eslint-disable-next-line @raycast/prefer-common-shortcut
         shortcut={{
           macOS: { modifiers: ["cmd", "shift"], key: "c" },
           Windows: { modifiers: ["ctrl", "shift"], key: "c" },
