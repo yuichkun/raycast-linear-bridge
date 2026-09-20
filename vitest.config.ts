@@ -5,6 +5,7 @@ export default defineConfig({
   resolve: {
     alias: {
       "@raycast/api": resolve(__dirname, "src/test/raycast-api.ts"),
+      "@raycast/utils": resolve(__dirname, "src/test/raycast-utils.ts"),
     },
   },
 });
