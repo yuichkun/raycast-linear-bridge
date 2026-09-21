@@ -1,4 +1,4 @@
-import { Action, ActionPanel, Form, showToast, Toast, useNavigation } from "@raycast/api";
+import { Action, ActionPanel, Form, launchCommand, LaunchType, showToast, Toast, useNavigation } from "@raycast/api";
 import { useCachedPromise } from "@raycast/utils";
 import { useState } from "react";
 import { PRIORITY_NAMES } from "./constants";
@@ -40,6 +40,19 @@ export default function Command() {
     { initialData: [] },
   );
 
+  // Hands over to List Tasks as its own command instead of pushing its view onto this one. A
+  // pushed view still counts as Create Task to Raycast 2, so pressing the Create Task hotkey to
+  // add the next task toggled the window shut — and reopened it on the same list — rather than
+  // opening a fresh form.
+  async function showTaskList() {
+    try {
+      await launchCommand({ name: "list-tasks", type: LaunchType.UserInitiated });
+    } catch {
+      // launchCommand rejects when List Tasks has been disabled; its view still works pushed.
+      push(<ListTasks />);
+    }
+  }
+
   async function handleSubmit(values: FormValues) {
     if (!values.title) {
       await showToast({ style: Toast.Style.Failure, title: "Task name is required" });
@@ -75,7 +88,7 @@ export default function Command() {
       });
 
       await showToast({ style: Toast.Style.Success, title: "Created task", message: values.title });
-      push(<ListTasks />);
+      await showTaskList();
     } catch (e) {
       await showToast({
         style: Toast.Style.Failure,
