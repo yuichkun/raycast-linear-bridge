@@ -1,12 +1,19 @@
-import { ActionPanel, Color, Icon, List } from "@raycast/api";
+import { ActionPanel, List } from "@raycast/api";
+import { usePromise } from "@raycast/utils";
 import { useEffect, useMemo, useState } from "react";
 import { FilterTeamsAction } from "./actions/FilterTeams";
 import { DueHorizon, parseDueHorizon } from "./date";
 import { useSearch } from "./hooks/useSearch";
-import { useTasks } from "./hooks/useTasks";
-import { retrieveDueHorizon, retrieveVisibleTeamIds, updateDueHorizon } from "./storage";
+import { retrieveCachedItems, retrieveDueHorizon, retrieveVisibleTeamIds, updateDueHorizon } from "./storage";
+import { runSync } from "./sync/runSync";
 import { groupTasksBySection, restrictToDueHorizon, restrictToVisibleTeams } from "./task-order";
 import { TaskLineItem } from "./TaskLineItem";
+import { Task } from "./types";
+
+// One shared instance rather than a fresh [] per render: visibleTasks and the search
+// results are memoized on the task array, and a new array every render would recompute
+// both on every render for as long as the cache is still loading.
+const NO_TASKS: Task[] = [];
 
 const DUE_HORIZON_TITLES: Record<DueHorizon, string> = {
   all: "All",
@@ -16,7 +23,28 @@ const DUE_HORIZON_TITLES: Record<DueHorizon, string> = {
 };
 
 export default function Command() {
-  const { tasks, isLoading, error, revalidate } = useTasks();
+  // The list shows the tasks cache on disk, nothing else. The sync never feeds it directly:
+  // the pull writes to the cache, and the list re-reads the cache once the sync is done.
+  // Mutations write to the cache too, before calling refetchList, so a change is on screen
+  // as soon as the cache is re-read and reaches Linear on the sync that follows. Being
+  // offline is not an error — runSync reports it in its result and leaves the cache as it
+  // was — so the only sync that gets a toast is one Linear actually rejected.
+  const cache = usePromise(retrieveCachedItems, [], {
+    failureToastOptions: { title: "Couldn't read the task cache" },
+  });
+  const sync = usePromise(runSync, [], {
+    onData: async () => {
+      await cache.revalidate();
+    },
+    failureToastOptions: { title: "Couldn't sync with Linear" },
+  });
+  const tasks = cache.data ?? NO_TASKS;
+  // The progress bar only while there's nothing to show yet: Raycast never shows an
+  // EmptyView while isLoading is true, so keeping it on through every sync would take the
+  // empty view's actions away each time.
+  const isLoading = cache.isLoading || (tasks.length === 0 && sync.isLoading);
+  const isOffline = sync.data?.networkUnreachable === true;
+
   const [visibleTeamIds, setVisibleTeamIds] = useState<string[]>([]);
   const [dueHorizon, setDueHorizon] = useState<DueHorizon>("all");
   // Off by default: a full detail pane next to every row crowds the list when you're just
@@ -30,12 +58,11 @@ export default function Command() {
   }
 
   // Every mutation (Mark Complete, Rename, Filter Teams, ...) calls this right after
-  // writing to the cache, queue or settings: the list re-reads what was written and
-  // revalidates against Linear, so a change reaches Linear immediately instead of waiting
-  // for the next time this command happens to be opened.
+  // writing to the cache, queue or settings.
   function refetchList() {
     reloadSettings();
-    revalidate();
+    cache.revalidate();
+    sync.revalidate();
   }
 
   // The dropdown is controlled (value from settings.json, like the team filter) rather
@@ -83,23 +110,13 @@ export default function Command() {
     tasks: section.key === "outdated" ? section.tasks : section.tasks.filter((task) => filteredTaskIds.has(task.id)),
   }));
 
-  if (error) {
-    return (
-      <List>
-        <List.EmptyView
-          icon={{ source: Icon.ExclamationMark, tintColor: Color.Red }}
-          title="Failed to connect to Linear"
-          description={error}
-        />
-      </List>
-    );
-  }
-
   const filterCount = visibleTeamIds.length;
   const isHorizonActive = dueHorizon !== "all";
 
   let emptyDescription = "Create a task to get going.";
-  if (filterCount > 0 && isHorizonActive) {
+  if (tasks.length === 0 && isOffline) {
+    emptyDescription = "Couldn't reach Linear, and nothing is cached yet.";
+  } else if (filterCount > 0 && isHorizonActive) {
     emptyDescription = "Filters are on — check the due dropdown and the team filter (⌘⇧F).";
   } else if (filterCount > 0) {
     emptyDescription = "The team filter is on — press ⌘⇧F to adjust which teams are shown.";
