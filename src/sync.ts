@@ -1,13 +1,20 @@
-import { showToast, Toast } from "@raycast/api";
+import { environment, LaunchType, showToast, Toast } from "@raycast/api";
 import { CreateCommentOp } from "./repository/syncQueue";
 import { runSync } from "./sync/runSync";
 
 export default async function Command() {
+  // A scheduled run has nobody watching it: showToast falls back to a HUD when the Raycast
+  // window is closed, so the routine outcomes — synced, or offline and will retry — would
+  // pop up over whatever the user is doing, every interval. Rejected changes are different:
+  // they've been rolled back and this is the only time they'll be reported.
+  const quiet = environment.launchType === LaunchType.Background;
+
   try {
     const { networkUnreachable, queueResult } = await runSync();
 
     if (networkUnreachable) {
-      await showToast({ style: Toast.Style.Failure, title: "Sync failed", message: "No network connection" });
+      if (!quiet)
+        await showToast({ style: Toast.Style.Failure, title: "Sync failed", message: "No network connection" });
       return;
     }
 
@@ -24,7 +31,7 @@ export default async function Command() {
       return;
     }
 
-    await showToast({ style: Toast.Style.Success, title: "Synced with Linear" });
+    if (!quiet) await showToast({ style: Toast.Style.Success, title: "Synced with Linear" });
   } catch (e) {
     await showToast({
       style: Toast.Style.Failure,
