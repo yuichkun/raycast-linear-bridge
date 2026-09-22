@@ -1,7 +1,8 @@
 import { ActionPanel, Detail, useNavigation } from "@raycast/api";
-import { useCachedPromise } from "@raycast/utils";
+import { showFailureToast, useCachedPromise } from "@raycast/utils";
 import { FC, useEffect } from "react";
 import { commentsMarkdown } from "../commentsMarkdown";
+import { isNetworkError } from "../repository/networkError";
 import { fetchCommentsForTask, retrieveCachedItems, retrievePendingCommentsForTask } from "../storage";
 import { taskDetailMarkdown, TaskMetadata } from "../TaskMetadata";
 import { TaskEditMenu } from "./edit";
@@ -42,6 +43,15 @@ export const TaskDetailView: FC<Props> = ({ taskId, refetchList }) => {
   } = useCachedPromise(
     async (id: string, synced: boolean) => (synced ? fetchCommentsForTask(id) : []),
     [taskId, isSynced],
+    {
+      // The comments section below already says when Linear is unreachable, so the hook's
+      // default "Failed to fetch latest data" toast would report the same thing twice.
+      // Anything else — a rejected key, an issue that no longer exists — still gets one.
+      onError: async (error) => {
+        if (isNetworkError(error)) return;
+        await showFailureToast(error, { title: "Couldn't load comments" });
+      },
+    },
   );
   // Comments written here but not yet synced come from the local queue, so they show up
   // the moment they're added — online or not — instead of looking lost until the next sync.
