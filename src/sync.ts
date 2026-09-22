@@ -4,9 +4,9 @@ import { runSync } from "./sync/runSync";
 
 export default async function Command() {
   try {
-    const { queueResult } = await runSync();
+    const { networkUnreachable, queueResult } = await runSync();
 
-    if (queueResult.networkUnreachable) {
+    if (networkUnreachable) {
       await showToast({ style: Toast.Style.Failure, title: "Sync failed", message: "No network connection" });
       return;
     }

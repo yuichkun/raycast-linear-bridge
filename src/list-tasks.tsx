@@ -72,10 +72,13 @@ export default function Command() {
       }
 
       try {
-        const { tasks: fresh } = await runSync();
+        const { tasks: fresh, networkUnreachable } = await runSync();
         if (cancelled) return;
         setTasks(fresh);
-        setError(undefined);
+        // Offline with nothing cached is the one case where there's nothing to show.
+        setError(
+          networkUnreachable && fresh.length === 0 ? "Couldn't reach Linear, and nothing is cached yet." : undefined,
+        );
       } catch (e) {
         if (cancelled) return;
         // Cached tasks are still shown even if the background refresh fails (e.g. offline).
