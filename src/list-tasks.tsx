@@ -3,11 +3,10 @@ import { useEffect, useMemo, useState } from "react";
 import { FilterTeamsAction } from "./actions/FilterTeams";
 import { DueHorizon, parseDueHorizon } from "./date";
 import { useSearch } from "./hooks/useSearch";
-import { runSync } from "./sync/runSync";
-import { retrieveCachedItems, retrieveDueHorizon, retrieveVisibleTeamIds, updateDueHorizon } from "./storage";
+import { useTasks } from "./hooks/useTasks";
+import { retrieveDueHorizon, retrieveVisibleTeamIds, updateDueHorizon } from "./storage";
 import { groupTasksBySection, restrictToDueHorizon, restrictToVisibleTeams } from "./task-order";
 import { TaskLineItem } from "./TaskLineItem";
-import { Task } from "./types";
 
 const DUE_HORIZON_TITLES: Record<DueHorizon, string> = {
   all: "All",
@@ -17,29 +16,26 @@ const DUE_HORIZON_TITLES: Record<DueHorizon, string> = {
 };
 
 export default function Command() {
-  const [tasks, setTasks] = useState<Task[]>([]);
+  const { tasks, isLoading, error, revalidate } = useTasks();
   const [visibleTeamIds, setVisibleTeamIds] = useState<string[]>([]);
   const [dueHorizon, setDueHorizon] = useState<DueHorizon>("all");
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string>();
   // Off by default: a full detail pane next to every row crowds the list when you're just
   // scanning titles. ⌘D turns it on for whoever wants it open persistently.
   const [isShowingDetail, setIsShowingDetail] = useState(false);
 
-  async function refetchList() {
-    // Fire-and-forget: every mutation (Mark Complete, Rename, ...) calls refetchList()
-    // right after writing to the local cache + queue, so kicking a sync attempt here
-    // (rather than only on mount) means changes reach Linear immediately instead of
-    // waiting for the next time this command happens to be opened.
-    runSync();
-    const [cached, visible, horizon] = await Promise.all([
-      retrieveCachedItems(),
-      retrieveVisibleTeamIds(),
-      retrieveDueHorizon(),
-    ]);
-    setTasks(cached);
+  async function reloadSettings() {
+    const [visible, horizon] = await Promise.all([retrieveVisibleTeamIds(), retrieveDueHorizon()]);
     setVisibleTeamIds(visible);
     setDueHorizon(horizon);
+  }
+
+  // Every mutation (Mark Complete, Rename, Filter Teams, ...) calls this right after
+  // writing to the cache, queue or settings: the list re-reads what was written and
+  // revalidates against Linear, so a change reaches Linear immediately instead of waiting
+  // for the next time this command happens to be opened.
+  function refetchList() {
+    reloadSettings();
+    revalidate();
   }
 
   // The dropdown is controlled (value from settings.json, like the team filter) rather
@@ -55,45 +51,7 @@ export default function Command() {
   }
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function load() {
-      const [cached, visible, horizon] = await Promise.all([
-        retrieveCachedItems(),
-        retrieveVisibleTeamIds(),
-        retrieveDueHorizon(),
-      ]);
-      if (cancelled) return;
-      setVisibleTeamIds(visible);
-      setDueHorizon(horizon);
-      if (cached.length > 0) {
-        setTasks(cached);
-        setIsLoading(false);
-      }
-
-      try {
-        const { tasks: fresh, networkUnreachable } = await runSync();
-        if (cancelled) return;
-        setTasks(fresh);
-        // Offline with nothing cached is the one case where there's nothing to show.
-        setError(
-          networkUnreachable && fresh.length === 0 ? "Couldn't reach Linear, and nothing is cached yet." : undefined,
-        );
-      } catch (e) {
-        if (cancelled) return;
-        // Cached tasks are still shown even if the background refresh fails (e.g. offline).
-        if (cached.length === 0) {
-          setError(e instanceof Error ? e.message : "Failed to fetch issues from Linear");
-        }
-      } finally {
-        if (!cancelled) setIsLoading(false);
-      }
-    }
-
-    load();
-    return () => {
-      cancelled = true;
-    };
+    reloadSettings();
   }, []);
 
   // Archived tasks stay in the cache (so a failed archive can be rolled back accurately)
