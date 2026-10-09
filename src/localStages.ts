@@ -15,7 +15,7 @@ export const LOCAL_STAGES: LocalStage[] = [
   { name: "Done", type: "completed" },
 ];
 
-export const DEFAULT_LOCAL_STAGE: LocalStage = LOCAL_STAGES.find((stage) => stage.type === "started")!;
+export const DEFAULT_LOCAL_STAGE: LocalStage = LOCAL_STAGES.find((stage) => stage.type === "unstarted")!;
 
 export function findLocalStage(type: WorkflowStateType | undefined): LocalStage | undefined {
   return LOCAL_STAGES.find((stage) => stage.type === type);

@@ -9,7 +9,7 @@ import { WorkflowStateType } from "../types";
 // (Create Task, Promote to Linear). Previously this logic was copy-pasted into each screen
 // separately, which is exactly how they drifted out of sync with each other. One
 // implementation now: both default to the "General" team and, by default, its
-// "in progress"-equivalent state — instead of Linear's own new-issue default (often
+// "todo"-equivalent state — instead of Linear's own new-issue default (often
 // Triage). Promote to Linear passes the local task's current stage as `preferredType`
 // instead, so promoting preserves the stage it already had rather than resetting it.
 //
@@ -22,7 +22,7 @@ import { WorkflowStateType } from "../types";
 // value in the same render makes that class of mismatch impossible: the value can never be
 // inconsistent with the options it's chosen from because they're computed from the same
 // source in the same pass.
-export function useTeamAndStatusPicker(preferredType: WorkflowStateType = "started") {
+export function useTeamAndStatusPicker(preferredType: WorkflowStateType = "unstarted") {
   const [teamIdOverride, setTeamIdOverride] = useState<string>();
   const [stateIdOverride, setStateIdOverride] = useState<string>();
 
@@ -39,7 +39,7 @@ export function useTeamAndStatusPicker(preferredType: WorkflowStateType = "start
   // A manually-picked state only applies as long as it belongs to the current team's
   // states — switching teams invalidates it instead of carrying over a foreign id.
   const overrideIsValid = stateIdOverride && sortedStates.some((state) => state.id === stateIdOverride);
-  const defaultState = resolveStateOfType(sortedStates, preferredType) ?? resolveStateOfType(sortedStates, "started");
+  const defaultState = resolveStateOfType(sortedStates, preferredType) ?? resolveStateOfType(sortedStates, "unstarted");
   const stateId = overrideIsValid ? stateIdOverride : defaultState?.id;
 
   function setTeamId(id: string) {
