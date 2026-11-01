@@ -12,8 +12,8 @@ describe("findLocalStage", () => {
 });
 
 describe("DEFAULT_LOCAL_STAGE", () => {
-  it("is the started-type stage", () => {
-    expect(DEFAULT_LOCAL_STAGE.type).toBe("started");
+  it("is the unstarted-type stage", () => {
+    expect(DEFAULT_LOCAL_STAGE.type).toBe("unstarted");
     expect(LOCAL_STAGES).toContain(DEFAULT_LOCAL_STAGE);
   });
 });
