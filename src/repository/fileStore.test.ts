@@ -69,6 +69,20 @@ describe("readJsonFile / writeJsonFile", () => {
     expect(files).toEqual(["tasks.json"]);
   });
 
+  it("leaves a parseable file when a long and a short write overlap", async () => {
+    // The List Tasks view and the scheduled Sync command can write tasks.json at the same
+    // time. If both share one temp path, the shorter write lands over the start of the
+    // longer one and the renamed file ends with the longer one's leftover tail.
+    const long = Array.from({ length: 5000 }, (_, i) => ({ id: `long-${i}` }));
+    const short = [{ id: "short" }];
+
+    await Promise.all([writeJsonFile("tasks.json", long), writeJsonFile("tasks.json", short)]);
+
+    const raw = await readFile(join(dir, "tasks.json"), "utf-8");
+    expect([long, short]).toContainEqual(JSON.parse(raw));
+    expect(await readdir(dir)).toEqual(["tasks.json"]);
+  });
+
   it("creates the support directory if it doesn't exist yet", async () => {
     const nestedDir = join(dir, "does", "not", "exist", "yet");
     environment.supportPath = nestedDir;

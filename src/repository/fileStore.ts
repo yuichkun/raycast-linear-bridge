@@ -1,4 +1,5 @@
 import { environment, LocalStorage } from "@raycast/api";
+import { randomUUID } from "crypto";
 import { mkdir, readFile, rename, writeFile } from "fs/promises";
 import { join } from "path";
 
@@ -45,9 +46,14 @@ export async function writeJsonFile(filename: string, data: unknown): Promise<vo
 // Writes to a temp file first, then renames it into place. rename() on the same filesystem
 // is atomic at the OS level, so a crash mid-write leaves the previous file intact (the
 // rename simply never happens) instead of a half-written, corrupt one.
+//
+// Each write gets its own temp file. The List Tasks view and the scheduled Sync command run
+// as separate processes and can write the same file at once; with a shared temp path the
+// shorter write lands over the start of the longer one, and the renamed file ends with the
+// longer one's leftover tail — valid JSON followed by junk.
 async function writeRawFile(filePath: string, contents: string): Promise<void> {
   await mkdir(environment.supportPath, { recursive: true });
-  const tmpPath = `${filePath}.tmp`;
+  const tmpPath = `${filePath}.${process.pid}.${randomUUID()}.tmp`;
   await writeFile(tmpPath, contents, "utf-8");
   await rename(tmpPath, filePath);
 }
