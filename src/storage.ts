@@ -7,10 +7,10 @@ import {
   getCachedTeamLabels,
   getCachedTeams,
   getCachedTeamStates,
-  setCachedTasks,
   setCachedTeamLabels,
   setCachedTeams,
   setCachedTeamStates,
+  updateCachedTasks,
 } from "./repository/localCache";
 import { findLocalStage } from "./localStages";
 import { fetchAssignedIssues, fetchIssueComments, resolveStateOfType } from "./repository/linearApi";
@@ -109,44 +109,29 @@ export async function retrievePendingCommentsForTask(taskId: string): Promise<Is
 
 export async function refreshItemsFromLinear(): Promise<Task[]> {
   const { tasks: fresh, teamLabels, teamStates, teams } = await fetchAssignedIssues();
-  const cached = await getCachedTasks();
-  const localOnly = cached.filter((task) => task.syncState !== "synced");
-  const queue = await getQueue();
-  const merged = applyPendingOpsToAll(fresh, queue);
-  const combined = [...localOnly, ...merged];
-  await Promise.all([
-    setCachedTasks(combined),
-    setCachedTeamLabels(teamLabels),
-    setCachedTeamStates(teamStates),
-    setCachedTeams(teams),
-  ]);
+  // The local-only tasks and pending ops are read only once the fetch is back and under the
+  // lock, so a task created while Linear was answering is kept rather than overwritten.
+  const { next: combined } = await updateCachedTasks(async (cached) => {
+    const localOnly = cached.filter((task) => task.syncState !== "synced");
+    const queue = await getQueue();
+    return [...localOnly, ...applyPendingOpsToAll(fresh, queue)];
+  });
+  await Promise.all([setCachedTeamLabels(teamLabels), setCachedTeamStates(teamStates), setCachedTeams(teams)]);
   return combined;
 }
 
 export async function markTaskComplete(taskId: string): Promise<void> {
-  const cached = await getCachedTasks();
-  const task = cached.find((t) => t.id === taskId);
-  if (!task) return;
-  const target = await resolveMoveTarget(task, "completed");
-  await moveTaskToState(cached, task, target);
+  await moveTaskToState(taskId, (task) => resolveMoveTarget(task, "completed"));
 }
 
 export async function markTaskInProgress(taskId: string): Promise<void> {
-  const cached = await getCachedTasks();
-  const task = cached.find((t) => t.id === taskId);
-  if (!task) return;
-  const target = await resolveMoveTarget(task, "started");
-  await moveTaskToState(cached, task, target);
+  await moveTaskToState(taskId, (task) => resolveMoveTarget(task, "started"));
 }
 
 // The other half of Mark as in Progress's toggle: reopening an in-progress task back to
 // its team's Todo-equivalent state (or LOCAL_STAGES' "Todo" for a local-only task).
 export async function markTaskTodo(taskId: string): Promise<void> {
-  const cached = await getCachedTasks();
-  const task = cached.find((t) => t.id === taskId);
-  if (!task) return;
-  const target = await resolveMoveTarget(task, "unstarted");
-  await moveTaskToState(cached, task, target);
+  await moveTaskToState(taskId, (task) => resolveMoveTarget(task, "unstarted"));
 }
 
 // Complete/In Progress are the two most common transitions and get their own one-key
@@ -159,10 +144,7 @@ export async function changeTaskState(
   targetStateName: string,
   targetStateType: WorkflowStateType,
 ): Promise<void> {
-  const cached = await getCachedTasks();
-  const task = cached.find((t) => t.id === taskId);
-  if (!task) return;
-  await moveTaskToState(cached, task, { id: targetStateId, name: targetStateName, type: targetStateType });
+  await moveTaskToState(taskId, async () => ({ id: targetStateId, name: targetStateName, type: targetStateType }));
 }
 
 type MoveTarget = { id?: string; name: string; type: WorkflowStateType };
@@ -185,26 +167,35 @@ async function resolveMoveTarget(task: Task, type: WorkflowStateType): Promise<M
   return target ? { id: target.id, name: target.name, type: target.type as WorkflowStateType } : undefined;
 }
 
-async function moveTaskToState(cached: Task[], task: Task, target: MoveTarget | undefined): Promise<void> {
-  // A missing target state means there's nothing configured for this transition (e.g. no
-  // matching state resolved for the task's team) — this must surface as a failure, not a
-  // silent no-op that lets the caller report success for a change that never happened.
-  if (!target) {
-    throw new Error(`No matching state found for "${task.title}"`);
-  }
-  if (task.syncState !== "local" && !target.id) {
-    throw new Error(`No matching state found in Linear for "${task.title}"'s team`);
-  }
-  if (task.stateName === target.name && task.stateType === target.type) return;
+async function moveTaskToState(
+  taskId: string,
+  resolveTarget: (task: Task) => Promise<MoveTarget | undefined>,
+): Promise<void> {
+  const { previous, next } = await updateCachedTasks(async (cached) => {
+    const task = cached.find((t) => t.id === taskId);
+    if (!task) return cached;
+    const target = await resolveTarget(task);
+    // A missing target state means there's nothing configured for this transition (e.g. no
+    // matching state resolved for the task's team) — this must surface as a failure, not a
+    // silent no-op that lets the caller report success for a change that never happened.
+    if (!target) {
+      throw new Error(`No matching state found for "${task.title}"`);
+    }
+    if (task.syncState !== "local" && !target.id) {
+      throw new Error(`No matching state found in Linear for "${task.title}"'s team`);
+    }
+    if (task.stateName === target.name && task.stateType === target.type) return cached;
 
-  const previousStateId = task.stateId;
-  const updated = cached.map((t) =>
-    t.id === task.id ? { ...t, stateId: target.id, stateName: target.name, stateType: target.type } : t,
-  );
-  await setCachedTasks(updated);
+    return cached.map((t) =>
+      t.id === task.id ? { ...t, stateId: target.id, stateName: target.name, stateType: target.type } : t,
+    );
+  });
+  if (next === previous) return;
 
-  if (task.syncState === "synced") {
-    await enqueueFieldUpdate(task.id, "stateId", target.id, previousStateId);
+  const task = previous.find((t) => t.id === taskId);
+  const moved = next.find((t) => t.id === taskId);
+  if (task?.syncState === "synced" && moved) {
+    await enqueueFieldUpdate(taskId, "stateId", moved.stateId, task.stateId);
   }
 }
 
@@ -229,35 +220,33 @@ export async function updateDescription(taskId: string, description: string | un
 }
 
 async function updateTaskField(taskId: string, field: SyncOpField, value: unknown): Promise<void> {
-  const cached = await getCachedTasks();
-  const task = cached.find((t) => t.id === taskId);
-  if (!task) return;
+  const { previous, next } = await updateCachedTasks((cached) => {
+    if (!cached.some((t) => t.id === taskId)) return cached;
+    return cached.map((t) => (t.id === taskId ? applyOpToTask(t, field, value) : t));
+  });
+  if (next === previous) return;
 
-  const previousValue = getFieldValue(task, field);
-  const updated = cached.map((t) => (t.id === taskId ? applyOpToTask(t, field, value) : t));
-  await setCachedTasks(updated);
-
-  if (task.syncState === "synced") {
-    await enqueueFieldUpdate(taskId, field, value, previousValue);
+  const task = previous.find((t) => t.id === taskId);
+  if (task?.syncState === "synced") {
+    await enqueueFieldUpdate(taskId, field, value, getFieldValue(task, field));
   }
 }
 
 export async function archiveTask(taskId: string): Promise<void> {
-  const cached = await getCachedTasks();
-  const task = cached.find((t) => t.id === taskId);
-  if (!task || task.archivedLocally) return;
-
-  if (task.syncState !== "synced") {
+  const { previous, next } = await updateCachedTasks((cached) => {
+    const task = cached.find((t) => t.id === taskId);
+    if (!task || task.archivedLocally) return cached;
     // Local-only (or not-yet-created) tasks have nothing to archive on Linear's side —
     // drop them from the cache outright instead of leaving an archivedLocally=true
     // phantom that would otherwise sit there forever (no queue op will ever resolve it).
-    await setCachedTasks(cached.filter((t) => t.id !== taskId));
-    return;
-  }
+    if (task.syncState !== "synced") return cached.filter((t) => t.id !== taskId);
+    return cached.map((t) => (t.id === taskId ? { ...t, archivedLocally: true } : t));
+  });
+  if (next === previous) return;
 
-  const updated = cached.map((t) => (t.id === taskId ? { ...t, archivedLocally: true } : t));
-  await setCachedTasks(updated);
-  await enqueueArchive(taskId);
+  if (previous.find((t) => t.id === taskId)?.syncState === "synced") {
+    await enqueueArchive(taskId);
+  }
 }
 
 export async function archiveCompletedTasks(): Promise<number> {
@@ -290,7 +279,6 @@ export type CreateTaskInput = {
 // this id and watch for it disappearing from the cache — see resolveCreatedTask.
 export async function createTask(input: CreateTaskInput): Promise<string> {
   const tempId = uuidv4();
-  const cached = await getCachedTasks();
 
   const task: Task = {
     id: tempId,
@@ -313,7 +301,7 @@ export async function createTask(input: CreateTaskInput): Promise<string> {
     archivedLocally: false,
   };
 
-  await setCachedTasks([...cached, task]);
+  await updateCachedTasks((cached) => [...cached, task]);
 
   if (input.saveToLinear && input.teamId) {
     const createInput: CreateIssueInput = {
@@ -342,16 +330,16 @@ export async function promoteToLinear(
   stateName: string,
   stateType: Task["stateType"],
 ): Promise<void> {
-  const cached = await getCachedTasks();
-  const task = cached.find((t) => t.id === taskId);
-  if (!task || task.syncState !== "local") return;
-
-  const updated = cached.map((t) =>
-    t.id === taskId
-      ? { ...t, syncState: "pendingCreate" as const, teamId, teamName, stateId, stateName, stateType }
-      : t,
-  );
-  await setCachedTasks(updated);
+  const { previous, next } = await updateCachedTasks((cached) => {
+    if (!cached.some((t) => t.id === taskId && t.syncState === "local")) return cached;
+    return cached.map((t) =>
+      t.id === taskId
+        ? { ...t, syncState: "pendingCreate" as const, teamId, teamName, stateId, stateName, stateType }
+        : t,
+    );
+  });
+  const task = previous.find((t) => t.id === taskId);
+  if (next === previous || !task) return;
 
   const createInput: CreateIssueInput = {
     teamId,
@@ -370,19 +358,16 @@ export async function promoteToLinear(
 // (eligible for field updates/archive to actually reach Linear, included in the next
 // pull's diffing, etc).
 export async function resolveCreatedTask(tempId: string, realId: string): Promise<void> {
-  const cached = await getCachedTasks();
-  const updated = cached.map((task) =>
-    task.id === tempId ? { ...task, id: realId, syncState: "synced" as const } : task,
+  await updateCachedTasks((cached) =>
+    cached.map((task) => (task.id === tempId ? { ...task, id: realId, syncState: "synced" as const } : task)),
   );
-  await setCachedTasks(updated);
 }
 
 export async function rollbackPendingOp(op: SyncOp): Promise<void> {
   if (op.type === "create") {
     // Linear rejected the creation — the local-only placeholder never became real, so
     // remove it entirely instead of leaving a phantom task with no way to retry it.
-    const cached = await getCachedTasks();
-    await setCachedTasks(cached.filter((task) => task.id !== op.issueId));
+    await updateCachedTasks((cached) => cached.filter((task) => task.id !== op.issueId));
     return;
   }
 
@@ -392,9 +377,9 @@ export async function rollbackPendingOp(op: SyncOp): Promise<void> {
     return;
   }
 
-  const cached = await getCachedTasks();
-  const updated = cached.map((task) => (task.id === op.issueId ? rollbackOpOnTask(task, op) : task));
-  await setCachedTasks(updated);
+  await updateCachedTasks((cached) =>
+    cached.map((task) => (task.id === op.issueId ? rollbackOpOnTask(task, op) : task)),
+  );
 }
 
 function rollbackOpOnTask(task: Task, op: UpdateFieldOp | ArchiveOp): Task {

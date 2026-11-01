@@ -1,5 +1,5 @@
 import { DueHorizon, parseDueHorizon } from "../date";
-import { readJsonFile, writeJsonFile } from "./fileStore";
+import { readJsonFile, updateJsonFile } from "./fileStore";
 
 // User-level extension settings, stored in environment.supportPath for the same reason as
 // the tasks cache: Raycast's own "Clear Local Storage & Cache" debug action shares its
@@ -22,14 +22,17 @@ async function readSettings(): Promise<ExtensionSettings> {
   return readJsonFile<ExtensionSettings>(SETTINGS_FILE, DEFAULT_SETTINGS);
 }
 
+async function updateSettings(update: (settings: ExtensionSettings) => ExtensionSettings): Promise<void> {
+  await updateJsonFile<ExtensionSettings>(SETTINGS_FILE, DEFAULT_SETTINGS, update);
+}
+
 export async function getVisibleTeamIds(): Promise<string[]> {
   const settings = await readSettings();
   return settings.visibleTeamIds ?? [];
 }
 
 export async function setVisibleTeamIds(teamIds: string[]): Promise<void> {
-  const settings = await readSettings();
-  await writeJsonFile(SETTINGS_FILE, { ...settings, visibleTeamIds: teamIds });
+  await updateSettings((settings) => ({ ...settings, visibleTeamIds: teamIds }));
 }
 
 export async function getDueHorizon(): Promise<DueHorizon> {
@@ -38,6 +41,5 @@ export async function getDueHorizon(): Promise<DueHorizon> {
 }
 
 export async function setDueHorizon(horizon: DueHorizon): Promise<void> {
-  const settings = await readSettings();
-  await writeJsonFile(SETTINGS_FILE, { ...settings, dueHorizon: horizon });
+  await updateSettings((settings) => ({ ...settings, dueHorizon: horizon }));
 }

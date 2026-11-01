@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from "uuid";
-import { readJsonFile, writeJsonFile } from "./fileStore";
+import { readJsonFile, updateJsonFile } from "./fileStore";
 import { CreateIssueInput } from "../types";
 
 // Field names correspond 1:1 to a single property on Task / IssueUpdateInput.
@@ -61,8 +61,11 @@ export async function getQueue(): Promise<SyncOp[]> {
   return readJsonFile<SyncOp[]>(QUEUE_FILE, [], QUEUE_LEGACY_KEY);
 }
 
-async function setQueue(queue: SyncOp[]): Promise<void> {
-  await writeJsonFile(QUEUE_FILE, queue);
+// Under the file lock (see fileStore.ts's updateJsonFile): an enqueue from List Tasks and a
+// dequeue from the scheduled Sync command could otherwise each write back a queue missing
+// the other's change, dropping a queued op or bringing back one that was already sent.
+async function updateQueue(update: (queue: SyncOp[]) => SyncOp[]): Promise<void> {
+  await updateJsonFile<SyncOp[]>(QUEUE_FILE, [], update, QUEUE_LEGACY_KEY);
 }
 
 export async function enqueueFieldUpdate(
@@ -71,8 +74,7 @@ export async function enqueueFieldUpdate(
   value: unknown,
   previousValue: unknown,
 ): Promise<void> {
-  const queue = await getQueue();
-  queue.push({
+  const op: UpdateFieldOp = {
     opId: uuidv4(),
     type: "updateField",
     issueId,
@@ -80,31 +82,39 @@ export async function enqueueFieldUpdate(
     value,
     previousValue,
     createdAt: new Date().toISOString(),
-  });
-  await setQueue(queue);
+  };
+  await updateQueue((queue) => [...queue, op]);
 }
 
 export async function enqueueArchive(issueId: string): Promise<void> {
-  const queue = await getQueue();
-  queue.push({ opId: uuidv4(), type: "archive", issueId, createdAt: new Date().toISOString() });
-  await setQueue(queue);
+  const op: ArchiveOp = { opId: uuidv4(), type: "archive", issueId, createdAt: new Date().toISOString() };
+  await updateQueue((queue) => [...queue, op]);
 }
 
 export async function enqueueCreate(tempId: string, input: CreateIssueInput): Promise<void> {
-  const queue = await getQueue();
-  queue.push({ opId: uuidv4(), type: "create", issueId: tempId, input, createdAt: new Date().toISOString() });
-  await setQueue(queue);
+  const op: CreateIssueOp = {
+    opId: uuidv4(),
+    type: "create",
+    issueId: tempId,
+    input,
+    createdAt: new Date().toISOString(),
+  };
+  await updateQueue((queue) => [...queue, op]);
 }
 
 export async function enqueueComment(issueId: string, body: string): Promise<void> {
-  const queue = await getQueue();
-  queue.push({ opId: uuidv4(), type: "createComment", issueId, body, createdAt: new Date().toISOString() });
-  await setQueue(queue);
+  const op: CreateCommentOp = {
+    opId: uuidv4(),
+    type: "createComment",
+    issueId,
+    body,
+    createdAt: new Date().toISOString(),
+  };
+  await updateQueue((queue) => [...queue, op]);
 }
 
 export async function dequeue(opId: string): Promise<void> {
-  const queue = await getQueue();
-  await setQueue(queue.filter((op) => op.opId !== opId));
+  await updateQueue((queue) => queue.filter((op) => op.opId !== opId));
 }
 
 export async function getPendingOpsForIssue(issueId: string): Promise<SyncOp[]> {

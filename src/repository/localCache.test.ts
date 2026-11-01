@@ -7,10 +7,10 @@ import {
   getCachedTasks,
   getCachedTeamLabels,
   getCachedTeams,
-  setCachedTasks,
   setCachedTeamLabels,
   setCachedTeams,
   setCachedTeamStates,
+  updateCachedTasks,
 } from "./localCache";
 import { Task } from "../types";
 
@@ -41,7 +41,7 @@ function task(id: string): Task {
 
 describe("tasks cache (moved to environment.supportPath)", () => {
   it("round-trips tasks through the file store", async () => {
-    await setCachedTasks([task("a"), task("b")]);
+    await updateCachedTasks(() => [task("a"), task("b")]);
 
     const result = await getCachedTasks();
 

@@ -1,6 +1,6 @@
 import { LocalStorage } from "@raycast/api";
 import { Task } from "../types";
-import { readJsonFile, writeJsonFile } from "./fileStore";
+import { readJsonFile, updateJsonFile } from "./fileStore";
 
 // Tasks are irreplaceable for local-only/pendingCreate ones (no Linear copy exists), so
 // they live in environment.supportPath rather than LocalStorage — see fileStore.ts for why.
@@ -20,8 +20,12 @@ export async function getCachedTasks(): Promise<Task[]> {
   return readJsonFile<Task[]>(TASKS_FILE, [], TASKS_LEGACY_KEY);
 }
 
-export async function setCachedTasks(tasks: Task[]): Promise<void> {
-  await writeJsonFile(TASKS_FILE, tasks);
+// The only way to write the tasks cache, so every change goes through the file lock — see
+// fileStore.ts's updateJsonFile.
+export async function updateCachedTasks(
+  update: (current: Task[]) => Task[] | Promise<Task[]>,
+): Promise<{ previous: Task[]; next: Task[] }> {
+  return updateJsonFile<Task[]>(TASKS_FILE, [], update, TASKS_LEGACY_KEY);
 }
 
 export type CachedLabel = { id: string; name: string };

@@ -1,9 +1,9 @@
 import { environment, LocalStorage } from "@raycast/api";
-import { mkdtemp, readdir, readFile, rm } from "fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, utimes } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { readJsonFile, writeJsonFile } from "./fileStore";
+import { readJsonFile, updateJsonFile, writeJsonFile } from "./fileStore";
 
 let dir: string;
 
@@ -91,5 +91,59 @@ describe("readJsonFile / writeJsonFile", () => {
     const result = await readJsonFile("tasks.json", []);
 
     expect(result).toEqual([{ id: "1" }]);
+  });
+});
+
+describe("updateJsonFile", () => {
+  it("keeps every change when updates overlap", async () => {
+    // Each update yields mid-way, the way an awaited local read would, so without the lock
+    // they'd all read the same empty list and only the last append would survive.
+    const append = (id: string) =>
+      updateJsonFile<{ id: string }[]>("tasks.json", [], async (current) => {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        return [...current, { id }];
+      });
+
+    await Promise.all([append("a"), append("b"), append("c")]);
+
+    const result = await readJsonFile<{ id: string }[]>("tasks.json", []);
+    expect(result.map((t) => t.id).sort()).toEqual(["a", "b", "c"]);
+    expect(await readdir(dir)).toEqual(["tasks.json"]);
+  });
+
+  it("returns what it replaced and what it wrote", async () => {
+    await writeJsonFile("tasks.json", [{ id: "1" }]);
+
+    const result = await updateJsonFile<{ id: string }[]>("tasks.json", [], (current) => [...current, { id: "2" }]);
+
+    expect(result).toEqual({ previous: [{ id: "1" }], next: [{ id: "1" }, { id: "2" }] });
+  });
+
+  it("doesn't write when the update hands back the current value", async () => {
+    await updateJsonFile("tasks.json", [], (current) => current);
+
+    expect(await readdir(dir)).toEqual([]);
+  });
+
+  it("releases the lock when the update throws", async () => {
+    await expect(
+      updateJsonFile("tasks.json", [], () => {
+        throw new Error("nope");
+      }),
+    ).rejects.toThrow("nope");
+
+    await updateJsonFile("tasks.json", [], () => [{ id: "after" }]);
+    expect(await readJsonFile("tasks.json", [])).toEqual([{ id: "after" }]);
+  });
+
+  it("takes over a lock left behind by a process that died holding it", async () => {
+    const lockPath = join(dir, "tasks.json.lock");
+    await mkdir(lockPath);
+    const longAgo = new Date(Date.now() - 60_000);
+    await utimes(lockPath, longAgo, longAgo);
+
+    await updateJsonFile("tasks.json", [], () => [{ id: "1" }]);
+
+    expect(await readJsonFile("tasks.json", [])).toEqual([{ id: "1" }]);
   });
 });

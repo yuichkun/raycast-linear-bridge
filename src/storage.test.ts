@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fetchAssignedIssues } from "./repository/linearApi";
-import { getCachedTasks, getCachedTeamStates, setCachedTasks } from "./repository/localCache";
+import { getCachedTasks, getCachedTeamStates } from "./repository/localCache";
 import {
   enqueueComment,
   enqueueCreate,
@@ -20,16 +20,28 @@ import {
 } from "./storage";
 import { Task } from "./types";
 
-vi.mock("./repository/localCache", () => ({
-  getCachedTasks: vi.fn(),
-  setCachedTasks: vi.fn(),
-  getCachedTeamLabels: vi.fn(async () => new Map()),
-  setCachedTeamLabels: vi.fn(),
-  getCachedTeamStates: vi.fn(async () => new Map()),
-  setCachedTeamStates: vi.fn(),
-  getCachedTeams: vi.fn(async () => []),
-  setCachedTeams: vi.fn(),
-}));
+// Stands in for what updateCachedTasks writes, so tests read the cache from getCachedTasks
+// and assert on the write here, without the file lock.
+const setCachedTasks = vi.hoisted(() => vi.fn());
+
+vi.mock("./repository/localCache", () => {
+  const getCachedTasks = vi.fn();
+  return {
+    getCachedTasks,
+    updateCachedTasks: vi.fn(async (update: (current: Task[]) => Task[] | Promise<Task[]>) => {
+      const previous: Task[] = await getCachedTasks();
+      const next = await update(previous);
+      if (next !== previous) await setCachedTasks(next);
+      return { previous, next };
+    }),
+    getCachedTeamLabels: vi.fn(async () => new Map()),
+    setCachedTeamLabels: vi.fn(),
+    getCachedTeamStates: vi.fn(async () => new Map()),
+    setCachedTeamStates: vi.fn(),
+    getCachedTeams: vi.fn(async () => []),
+    setCachedTeams: vi.fn(),
+  };
+});
 
 vi.mock("./repository/syncQueue", () => ({
   enqueueFieldUpdate: vi.fn(),
