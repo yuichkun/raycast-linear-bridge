@@ -3,6 +3,7 @@ import { useCachedPromise } from "@raycast/utils";
 import { FC } from "react";
 import { PRIORITY_NAMES } from "../constants";
 import { formatDateOnly, parseDateOnly } from "../date";
+import { labelOptionsFor, statusOptionsFor } from "../formOptions";
 import { LOCAL_STAGES } from "../localStages";
 import {
   changeTaskState,
@@ -52,6 +53,8 @@ export const EditTask: FC<Props> = ({ task, refetchList }) => {
     [task.teamId],
     { initialData: [] },
   );
+  const statusOptions = statusOptionsFor(task, states);
+  const labelOptions = labelOptionsFor(task, labels);
 
   const handleSubmit = async (values: FormValues) => {
     try {
@@ -123,11 +126,9 @@ export const EditTask: FC<Props> = ({ task, refetchList }) => {
       </Form.Dropdown>
       {hasTeam ? (
         <Form.Dropdown id="stateId" title="Status" defaultValue={task.stateId}>
-          {[...states]
-            .sort((a, b) => a.position - b.position)
-            .map((state) => (
-              <Form.Dropdown.Item key={state.id} value={state.id} title={state.name} />
-            ))}
+          {statusOptions.map((state) => (
+            <Form.Dropdown.Item key={state.id} value={state.id} title={state.name} />
+          ))}
         </Form.Dropdown>
       ) : (
         <Form.Dropdown id="localStage" title="Status" defaultValue={task.stateType}>
@@ -138,7 +139,7 @@ export const EditTask: FC<Props> = ({ task, refetchList }) => {
       )}
       {hasTeam && (
         <Form.TagPicker id="labelIds" title="Labels" defaultValue={task.labelIds}>
-          {labels.map((label) => (
+          {labelOptions.map((label) => (
             <Form.TagPicker.Item key={label.id} value={label.id} title={label.name} />
           ))}
         </Form.TagPicker>
