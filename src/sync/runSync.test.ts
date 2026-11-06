@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { refreshItemsFromLinear, retrieveCachedItems } from "../storage";
+import { offline, refusedByFetch } from "../test/linearErrors";
 import { Task } from "../types";
 import { processQueue } from "./processQueue";
 import { runSync } from "./runSync";
@@ -29,7 +30,7 @@ const fresh = [task("fresh")];
 const cached = [task("cached")];
 
 beforeEach(() => {
-  vi.mocked(processQueue).mockReset().mockResolvedValue({ networkUnreachable: false, failures: [] });
+  vi.mocked(processQueue).mockReset().mockResolvedValue({ networkUnreachable: false, failures: [], deferred: 0 });
   vi.mocked(refreshItemsFromLinear).mockReset().mockResolvedValue(fresh);
   vi.mocked(retrieveCachedItems).mockReset().mockResolvedValue(cached);
 });
@@ -46,7 +47,7 @@ describe("runSync", () => {
     const order: string[] = [];
     vi.mocked(processQueue).mockImplementation(async () => {
       order.push("push");
-      return { networkUnreachable: false, failures: [] };
+      return { networkUnreachable: false, failures: [], deferred: 0 };
     });
     vi.mocked(refreshItemsFromLinear).mockImplementation(async () => {
       order.push("pull");
@@ -58,10 +59,10 @@ describe("runSync", () => {
     expect(order).toEqual(["push", "pull"]);
   });
 
-  // The message Raycast's error overlay showed for this: the SDK wraps fetch's
-  // "fetch failed" TypeError in a LinearError, which capitalises it.
+  // What the SDK throws without a network: fetch's "fetch failed" TypeError, wrapped by
+  // parseLinearError into a LinearError with no HTTP status.
   it("falls back to the cache instead of throwing when the pull can't reach Linear", async () => {
-    vi.mocked(refreshItemsFromLinear).mockRejectedValue(new Error("Fetch failed"));
+    vi.mocked(refreshItemsFromLinear).mockRejectedValue(offline());
 
     const result = await runSync();
 
@@ -69,8 +70,16 @@ describe("runSync", () => {
     expect(result.networkUnreachable).toBe(true);
   });
 
+  // An API key with a stray character in it makes fetch refuse to send anything. Reporting
+  // that as "offline" would never show what's actually wrong.
+  it("throws, with fetch's own reason, when fetch refused to send the request", async () => {
+    vi.mocked(refreshItemsFromLinear).mockRejectedValue(refusedByFetch());
+
+    await expect(runSync()).rejects.toThrow("Cannot convert argument to a ByteString");
+  });
+
   it("reports unreachable when the push couldn't reach Linear even if the pull then could", async () => {
-    vi.mocked(processQueue).mockResolvedValue({ networkUnreachable: true, failures: [] });
+    vi.mocked(processQueue).mockResolvedValue({ networkUnreachable: true, failures: [], deferred: 0 });
 
     const result = await runSync();
 

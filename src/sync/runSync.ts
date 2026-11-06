@@ -1,4 +1,4 @@
-import { isNetworkError } from "../repository/networkError";
+import { isLinearUnreachable } from "../repository/linearErrors";
 import { refreshItemsFromLinear, retrieveCachedItems } from "../storage";
 import { Task } from "../types";
 import { processQueue, ProcessQueueResult } from "./processQueue";
@@ -28,7 +28,7 @@ export async function runSync(): Promise<SyncResult> {
     const tasks = await refreshItemsFromLinear();
     return { tasks, networkUnreachable: queueResult.networkUnreachable, queueResult };
   } catch (error) {
-    if (!isNetworkError(error)) throw error;
+    if (!isLinearUnreachable(error)) throw error;
     return { tasks: await retrieveCachedItems(), networkUnreachable: true, queueResult };
   }
 }

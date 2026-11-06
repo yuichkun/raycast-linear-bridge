@@ -2,7 +2,7 @@ import { ActionPanel, Detail, useNavigation } from "@raycast/api";
 import { showFailureToast, useCachedPromise } from "@raycast/utils";
 import { FC, useEffect } from "react";
 import { commentsMarkdown } from "../commentsMarkdown";
-import { isNetworkError } from "../repository/networkError";
+import { isLinearUnreachable } from "../repository/linearErrors";
 import { fetchCommentsForTask, retrieveCachedItems, retrievePendingCommentsForTask } from "../storage";
 import { taskDetailMarkdown, TaskMetadata } from "../TaskMetadata";
 import { TaskEditMenu } from "./edit";
@@ -48,7 +48,7 @@ export const TaskDetailView: FC<Props> = ({ taskId, refetchList }) => {
       // default "Failed to fetch latest data" toast would report the same thing twice.
       // Anything else — a rejected key, an issue that no longer exists — still gets one.
       onError: async (error) => {
-        if (isNetworkError(error)) return;
+        if (isLinearUnreachable(error)) return;
         await showFailureToast(error, { title: "Couldn't load comments" });
       },
     },

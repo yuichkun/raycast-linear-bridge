@@ -31,6 +31,18 @@ export default async function Command() {
       return;
     }
 
+    // Still queued, nothing rolled back — so, like being offline, only worth saying when
+    // someone ran Sync to find out.
+    if (queueResult.deferred > 0) {
+      if (!quiet)
+        await showToast({
+          style: Toast.Style.Failure,
+          title: "Some changes are still waiting",
+          message: `Linear couldn't take ${queueResult.deferred} change(s) right now — they'll be sent on the next sync`,
+        });
+      return;
+    }
+
     if (!quiet) await showToast({ style: Toast.Style.Success, title: "Synced with Linear" });
   } catch (e) {
     await showToast({

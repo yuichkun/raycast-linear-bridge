@@ -1,8 +1,20 @@
-import { LinearClient } from "@linear/sdk";
+import { LinearClient, parseLinearError } from "@linear/sdk";
 import { getLinearClient } from "../linear/client";
 import { CommentReaction, CreateIssueInput, IssueComment, Task, WorkflowStateType } from "../types";
-import { isNetworkError } from "./networkError";
+import { shouldRetryLater } from "./linearErrors";
 import { SyncOpField } from "./syncQueue";
+
+// The raw GraphQL client below the SDK throws its own error class (or fetch's TypeError when
+// there is no response at all); the SDK's typed methods wrap theirs with parseLinearError.
+// Doing the same here means every failure from Linear reaches the caller as a LinearError,
+// so linearErrors.ts can classify it the same way wherever it came from.
+async function request<T>(client: LinearClient, query: string, variables: Record<string, unknown> = {}): Promise<T> {
+  try {
+    return await client.client.request<T, Record<string, unknown>>(query, variables);
+  } catch (error) {
+    throw parseLinearError(error as Parameters<typeof parseLinearError>[0]);
+  }
+}
 
 // Issue.state / Issue.team / Issue.labels() on the SDK's high-level Issue class each
 // resolve via a separate GraphQL request (confirmed by reading the compiled SDK), which
@@ -126,7 +138,7 @@ export function resolveStateOfType(states: RawState[], type: RawState["type"]): 
 }
 
 async function fetchTeamMetadata(client: LinearClient): Promise<Map<string, TeamMetadata>> {
-  const result = await client.client.request<TeamMetadataQueryResult, Record<string, never>>(TEAM_METADATA_QUERY);
+  const result = await request<TeamMetadataQueryResult>(client, TEAM_METADATA_QUERY);
   const map = new Map<string, TeamMetadata>();
   for (const team of result.teams.nodes) {
     map.set(team.id, {
@@ -143,7 +155,7 @@ async function fetchAllIssueNodes(client: LinearClient, viewerId: string): Promi
   let after: string | undefined;
 
   for (;;) {
-    const result = await client.client.request<IssuesQueryResult, Record<string, unknown>>(ISSUES_QUERY, {
+    const result = await request<IssuesQueryResult>(client, ISSUES_QUERY, {
       filter: { assignee: { id: { eq: viewerId } } },
       first: 100,
       after,
@@ -258,8 +270,9 @@ async function issueExists(client: LinearClient, id: string): Promise<boolean> {
     await client.issue(id);
     return true;
   } catch (error) {
-    // Without a network there's no telling either way — surface that, don't guess "no".
-    if (isNetworkError(error)) throw error;
+    // No answer, or an answer that only says "not now" (rate limit, Linear-side failure):
+    // there's no telling either way — surface that so the op is retried, don't guess "no".
+    if (shouldRetryLater(error)) throw error;
     return false;
   }
 }
@@ -269,7 +282,7 @@ async function commentExists(client: LinearClient, id: string): Promise<boolean>
     await client.comment({ id });
     return true;
   } catch (error) {
-    if (isNetworkError(error)) throw error;
+    if (shouldRetryLater(error)) throw error;
     return false;
   }
 }
@@ -376,10 +389,11 @@ export async function fetchIssueComments(issueId: string): Promise<IssueComment[
   let after: string | undefined;
 
   for (;;) {
-    const result = await client.client.request<IssueCommentsQueryResult, Record<string, unknown>>(
-      ISSUE_COMMENTS_QUERY,
-      { id: issueId, first: 50, after },
-    );
+    const result = await request<IssueCommentsQueryResult>(client, ISSUE_COMMENTS_QUERY, {
+      id: issueId,
+      first: 50,
+      after,
+    });
     nodes.push(...result.issue.comments.nodes);
     if (!result.issue.comments.pageInfo.hasNextPage) break;
     after = result.issue.comments.pageInfo.endCursor ?? undefined;

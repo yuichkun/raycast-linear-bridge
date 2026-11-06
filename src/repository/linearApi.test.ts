@@ -1,7 +1,17 @@
+import { LinearError } from "@linear/sdk";
 import type { LinearClient } from "@linear/sdk";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getLinearClient } from "../linear/client";
-import { createComment, createIssue, RawCommentNode, resolveStateOfType, toIssueComment } from "./linearApi";
+import { graphqlError, networkFailure, offline } from "../test/linearErrors";
+import {
+  createComment,
+  createIssue,
+  fetchAssignedIssues,
+  RawCommentNode,
+  resolveStateOfType,
+  toIssueComment,
+} from "./linearApi";
+import { isLinearUnreachable } from "./linearErrors";
 
 vi.mock("../linear/client", () => ({
   getLinearClient: vi.fn(),
@@ -56,11 +66,38 @@ describe("createIssue", () => {
 
   it("surfaces a network failure during the existence check instead of guessing", async () => {
     mockClient({
-      createIssue: vi.fn(async () => Promise.reject(new Error("fetch failed"))),
-      issue: vi.fn(async () => Promise.reject(new Error("fetch failed"))),
+      createIssue: vi.fn(async () => Promise.reject(offline())),
+      issue: vi.fn(async () => Promise.reject(offline())),
     });
 
-    await expect(createIssue("temp-1", { teamId: "team-1", title: "T" })).rejects.toThrow("fetch failed");
+    const failure = await createIssue("temp-1", { teamId: "team-1", title: "T" }).catch((error) => error);
+
+    expect(isLinearUnreachable(failure)).toBe(true);
+  });
+
+  // Guessing "doesn't exist" here hands processQueue the create's own refusal, which it
+  // rolls back — for an issue that may well exist.
+  it("surfaces a rate limit during the existence check instead of guessing", async () => {
+    const rateLimited = graphqlError("ratelimited", "Rate limit exceeded");
+    mockClient({
+      createIssue: vi.fn(async () => Promise.reject(graphqlError("invalid input", "Duplicate id"))),
+      issue: vi.fn(async () => Promise.reject(rateLimited)),
+    });
+
+    await expect(createIssue("temp-1", { teamId: "team-1", title: "T" })).rejects.toBe(rateLimited);
+  });
+});
+
+describe("fetchAssignedIssues", () => {
+  // The raw client throws fetch's TypeError, or its own error class; these come back as the
+  // SDK's typed errors so the sync can tell "offline" from "refused".
+  it("hands back a failed request as one of the SDK's typed errors", async () => {
+    mockClient({ client: { request: vi.fn(async () => Promise.reject(networkFailure())) } });
+
+    const failure = await fetchAssignedIssues().catch((error) => error);
+
+    expect(failure).toBeInstanceOf(LinearError);
+    expect(isLinearUnreachable(failure)).toBe(true);
   });
 });
 

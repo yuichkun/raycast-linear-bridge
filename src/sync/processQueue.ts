@@ -1,11 +1,15 @@
 import { archiveIssue, createComment, createIssue, updateIssueField } from "../repository/linearApi";
-import { isNetworkError } from "../repository/networkError";
+import { isLinearUnreachable, shouldRetryLater } from "../repository/linearErrors";
 import { dequeue, getQueue, SyncOp } from "../repository/syncQueue";
 import { resolveCreatedTask, rollbackPendingOp } from "../storage";
 
 export type ProcessQueueResult = {
   networkUnreachable: boolean;
+  // Rejected by Linear and rolled back.
   failures: SyncOp[];
+  // Left queued because Linear answered without judging them (rate limited, failing on its
+  // side, ...), or because an earlier op for the same issue was. Sent again on the next run.
+  deferred: number;
 };
 
 let inFlight: Promise<ProcessQueueResult> | undefined;
@@ -43,8 +47,18 @@ async function runQueue(): Promise<ProcessQueueResult> {
   const queue = await getQueue();
   const failures: SyncOp[] = [];
   let networkUnreachable = false;
+  let deferred = 0;
+  // Issues with an op left queued in this run. Their later ops wait too: sent past it, they'd
+  // reach Linear out of order — a "Done" sent ahead of an earlier "In Progress" that goes
+  // through next time leaves the issue In Progress. Other issues' ops carry on, so one op
+  // Linear keeps failing on holds up only its own issue.
+  const held = new Set<string>();
 
   for (const op of queue) {
+    if (held.has(op.issueId)) {
+      deferred++;
+      continue;
+    }
     try {
       switch (op.type) {
         case "updateField":
@@ -64,17 +78,26 @@ async function runQueue(): Promise<ProcessQueueResult> {
       }
       await dequeue(op.opId);
     } catch (e) {
-      if (isNetworkError(e)) {
+      // No answer from Linear: nothing else in the queue can get through either, and all of
+      // it stays queued for the next run.
+      if (isLinearUnreachable(e)) {
         networkUnreachable = true;
+        break;
+      }
+      // Linear answered without judging the change (rate limited, failing on its side, not
+      // accepting the key right now): it stays queued and is sent again on the next run.
+      if (shouldRetryLater(e)) {
+        held.add(op.issueId);
+        deferred++;
         continue;
       }
-      // Linear explicitly rejected the change (e.g. validation error) — undo the optimistic
-      // local update and surface it, rather than leaving the op stuck retrying forever.
+      // Linear looked at the change and refused it (e.g. a validation error) — undo the
+      // optimistic local update and surface it, rather than leaving it retrying forever.
       await rollbackPendingOp(op);
       await dequeue(op.opId);
       failures.push(op);
     }
   }
 
-  return { networkUnreachable, failures };
+  return { networkUnreachable, failures, deferred };
 }
