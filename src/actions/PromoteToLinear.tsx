@@ -2,7 +2,7 @@ import { Action, ActionPanel, Form, showToast, Toast, useNavigation } from "@ray
 import { FC } from "react";
 import { useTeamAndStatusPicker } from "../hooks/useTeamAndStatusPicker";
 import { promoteToLinear } from "../storage";
-import { Task, WorkflowStateType } from "../types";
+import { Task } from "../types";
 
 type Props = {
   task: Task;
@@ -33,7 +33,7 @@ export const PromoteToLinear: FC<Props> = ({ task, refetchList }) => {
     }
 
     try {
-      await promoteToLinear(task.id, team.id, team.name, state.id, state.name, state.type as WorkflowStateType);
+      await promoteToLinear(task.id, team, state.id);
       refetchList();
       pop();
       await showToast({ style: Toast.Style.Success, title: "Promoted to Linear", message: task.title });

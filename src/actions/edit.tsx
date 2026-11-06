@@ -14,9 +14,10 @@ import {
   markTaskInProgress,
   markTaskTodo,
   retrieveStatesForTeam,
+  StateChoice,
   updateDueDate,
 } from "../storage";
-import { Task, WorkflowStateType } from "../types";
+import { Task } from "../types";
 import { AddComment } from "./AddComment";
 import { EditTask } from "./EditTask";
 import { PromoteToLinear } from "./PromoteToLinear";
@@ -55,16 +56,11 @@ export const TaskEditMenu: FC<Props> = ({ task, refetchList }) => {
     [task.teamId],
     { initialData: [] },
   );
-  const statusOptions = hasTeam
+  const statusOptions: { key: string; name: string; choice: StateChoice }[] = hasTeam
     ? [...teamStates]
         .sort((a, b) => a.position - b.position)
-        .map((state) => ({
-          key: state.id,
-          name: state.name,
-          stateId: state.id,
-          stateType: state.type as WorkflowStateType,
-        }))
-    : LOCAL_STAGES.map((stage) => ({ key: stage.type, name: stage.name, stateId: undefined, stateType: stage.type }));
+        .map((state) => ({ key: state.id, name: state.name, choice: { stateId: state.id } }))
+    : LOCAL_STAGES.map((stage) => ({ key: stage.type, name: stage.name, choice: { localStageType: stage.type } }));
 
   // A toggle, not a one-way action: pressing Complete again on an already-Done task means
   // "I need to reopen this," and In Progress is a more useful landing spot than Backlog —
@@ -127,9 +123,9 @@ export const TaskEditMenu: FC<Props> = ({ task, refetchList }) => {
     }
   };
 
-  const handleChangeStatus = async (stateId: string | undefined, stateName: string, stateType: WorkflowStateType) => {
+  const handleChangeStatus = async (choice: StateChoice, stateName: string) => {
     try {
-      await changeTaskState(task.id, stateId, stateName, stateType);
+      await changeTaskState(task.id, choice);
       refetchList();
       await showToast({ style: Toast.Style.Success, title: "Updated status", message: `${task.title} → ${stateName}` });
     } catch (e) {
@@ -206,7 +202,7 @@ export const TaskEditMenu: FC<Props> = ({ task, refetchList }) => {
           <Action
             key={option.key}
             title={option.name}
-            onAction={() => handleChangeStatus(option.stateId, option.name, option.stateType)}
+            onAction={() => handleChangeStatus(option.choice, option.name)}
           />
         ))}
       </ActionPanel.Submenu>

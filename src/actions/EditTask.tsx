@@ -3,7 +3,7 @@ import { useCachedPromise } from "@raycast/utils";
 import { FC } from "react";
 import { PRIORITY_NAMES } from "../constants";
 import { formatDateOnly } from "../date";
-import { findLocalStage, LOCAL_STAGES } from "../localStages";
+import { LOCAL_STAGES } from "../localStages";
 import {
   changeTaskState,
   renameTask,
@@ -75,15 +75,9 @@ export const EditTask: FC<Props> = ({ task, refetchList }) => {
       }
 
       if (hasTeam && values.stateId && values.stateId !== task.stateId) {
-        const state = states.find((s) => s.id === values.stateId);
-        if (state) {
-          await changeTaskState(task.id, state.id, state.name, state.type as WorkflowStateType);
-        }
+        await changeTaskState(task.id, { stateId: values.stateId });
       } else if (!hasTeam && values.localStage && values.localStage !== task.stateType) {
-        const stage = findLocalStage(values.localStage);
-        if (stage) {
-          await changeTaskState(task.id, undefined, stage.name, stage.type);
-        }
+        await changeTaskState(task.id, { localStageType: values.localStage });
       }
 
       if (hasTeam && values.labelIds) {

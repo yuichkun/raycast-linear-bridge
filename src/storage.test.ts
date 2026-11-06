@@ -1,12 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fetchAssignedIssues } from "./repository/linearApi";
-import { getCachedTasks, getCachedTeamStates } from "./repository/localCache";
+import {
+  CachedLabel,
+  CachedState,
+  getCachedTasks,
+  getCachedTeamLabels,
+  getCachedTeamStates,
+} from "./repository/localCache";
 import {
   enqueueComment,
   enqueueCreate,
   enqueueFieldUpdate,
   getPendingOpsForIssue,
   getQueue,
+  SyncOp,
 } from "./repository/syncQueue";
 import {
   addComment,
@@ -15,8 +22,11 @@ import {
   markTaskComplete,
   markTaskInProgress,
   markTaskTodo,
+  promoteToLinear,
   refreshItemsFromLinear,
   retrievePendingCommentsForTask,
+  rollbackPendingOp,
+  updateLabels,
 } from "./storage";
 import { Task } from "./types";
 
@@ -53,11 +63,23 @@ vi.mock("./repository/syncQueue", () => ({
   getPendingOpsForIssue: vi.fn(async () => []),
 }));
 
-vi.mock("./repository/linearApi", () => ({
-  fetchAssignedIssues: vi.fn(async () => ({ tasks: [], teamLabels: new Map(), teams: [] })),
-  resolveStateOfType: (states: { type: string; position: number }[], type: string) =>
-    [...states].filter((s) => s.type === type).sort((a, b) => a.position - b.position)[0],
+// The real resolveStateOfType: which state Mark as Complete picks is what's under test here.
+vi.mock("./repository/linearApi", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./repository/linearApi")>()),
+  fetchAssignedIssues: vi.fn(async () => ({ tasks: [], teamLabels: new Map(), teamStates: new Map(), teams: [] })),
 }));
+
+function teamStates(states: CachedState[]): Map<string, CachedState[]> {
+  return new Map([["team-1", states]]);
+}
+
+function teamLabels(labels: CachedLabel[]): Map<string, CachedLabel[]> {
+  return new Map([["team-1", labels]]);
+}
+
+const todo: CachedState = { id: "todo-id", name: "Todo", type: "unstarted", position: 1 };
+const inProgress: CachedState = { id: "in-progress-id", name: "In Progress", type: "started", position: 2 };
+const done: CachedState = { id: "done-id", name: "Done", type: "completed", position: 3 };
 
 function task(overrides: Partial<Task> = {}): Task {
   return {
@@ -81,6 +103,7 @@ beforeEach(() => {
   vi.mocked(getQueue).mockReset().mockResolvedValue([]);
   vi.mocked(getPendingOpsForIssue).mockReset().mockResolvedValue([]);
   vi.mocked(getCachedTeamStates).mockReset().mockResolvedValue(new Map());
+  vi.mocked(getCachedTeamLabels).mockReset().mockResolvedValue(new Map());
 });
 
 describe("addComment", () => {
@@ -294,11 +317,14 @@ describe("markTaskTodo", () => {
 });
 
 describe("changeTaskState", () => {
-  it("moves a task to any state the caller picks, not just the resolved start/done state", async () => {
-    const t = task({ stateId: "backlog-id", stateName: "Backlog", stateType: "backlog" });
-    vi.mocked(getCachedTasks).mockResolvedValue([t]);
+  const triage: CachedState = { id: "triage-id", name: "Triage", type: "triage", position: 0 };
 
-    await changeTaskState(t.id, "triage-id", "Triage", "triage");
+  it("moves a task to any state the caller picks, not just the resolved start/done state", async () => {
+    const t = task({ teamId: "team-1", stateId: "backlog-id", stateName: "Backlog", stateType: "backlog" });
+    vi.mocked(getCachedTasks).mockResolvedValue([t]);
+    vi.mocked(getCachedTeamStates).mockResolvedValue(teamStates([triage]));
+
+    await changeTaskState(t.id, { stateId: "triage-id" });
 
     expect(setCachedTasks).toHaveBeenCalledWith([
       expect.objectContaining({ id: t.id, stateId: "triage-id", stateName: "Triage", stateType: "triage" }),
@@ -306,11 +332,40 @@ describe("changeTaskState", () => {
     expect(enqueueFieldUpdate).toHaveBeenCalledWith(t.id, "stateId", "triage-id", "backlog-id");
   });
 
+  it("takes the name, type and position from the team's state with that id", async () => {
+    const t = task({
+      teamId: "team-1",
+      stateId: "todo-id",
+      stateName: "Todo",
+      stateType: "unstarted",
+      statePosition: 1,
+    });
+    vi.mocked(getCachedTasks).mockResolvedValue([t]);
+    vi.mocked(getCachedTeamStates).mockResolvedValue(teamStates([todo, done]));
+
+    await changeTaskState(t.id, { stateId: "done-id" });
+
+    expect(setCachedTasks).toHaveBeenCalledWith([
+      expect.objectContaining({ stateId: "done-id", stateName: "Done", stateType: "completed", statePosition: 3 }),
+    ]);
+  });
+
+  it("refuses a state id the task's team doesn't have", async () => {
+    const t = task({ teamId: "team-1", stateId: "todo-id" });
+    vi.mocked(getCachedTasks).mockResolvedValue([t]);
+    vi.mocked(getCachedTeamStates).mockResolvedValue(teamStates([todo]));
+
+    await expect(changeTaskState(t.id, { stateId: "some-other-teams-state" })).rejects.toThrow();
+
+    expect(setCachedTasks).not.toHaveBeenCalled();
+    expect(enqueueFieldUpdate).not.toHaveBeenCalled();
+  });
+
   it("moves a local-only task to a picked LOCAL_STAGES entry with no id", async () => {
     const t = task({ syncState: "local", stateId: undefined, stateName: "Backlog", stateType: "backlog" });
     vi.mocked(getCachedTasks).mockResolvedValue([t]);
 
-    await changeTaskState(t.id, undefined, "Done", "completed");
+    await changeTaskState(t.id, { localStageType: "completed" });
 
     expect(setCachedTasks).toHaveBeenCalledWith([
       expect.objectContaining({ id: t.id, stateId: undefined, stateName: "Done", stateType: "completed" }),
@@ -340,5 +395,178 @@ describe("markTaskComplete", () => {
       expect.objectContaining({ id: t.id, stateId: undefined, stateName: "Done", stateType: "completed" }),
     ]);
     expect(enqueueFieldUpdate).not.toHaveBeenCalled();
+  });
+
+  // General's real completed states as of 2026-11-06 (positions from the cached tasks):
+  // "Done" comes first in Linear's order, 【案件】検品中 after it.
+  it("picks the team's first completed state, not one after it", async () => {
+    const inspecting: CachedState = {
+      id: "inspecting-id",
+      name: "【案件】検品中",
+      type: "completed",
+      position: 3549.8,
+    };
+    const t = task({ teamId: "team-1", stateId: "in-progress-id", stateName: "In Progress", stateType: "started" });
+    vi.mocked(getCachedTasks).mockResolvedValue([t]);
+    vi.mocked(getCachedTeamStates).mockResolvedValue(teamStates([inspecting, inProgress, done]));
+
+    await markTaskComplete(t.id);
+
+    expect(setCachedTasks).toHaveBeenCalledWith([expect.objectContaining({ stateId: "done-id", stateName: "Done" })]);
+  });
+
+  // Moving a task used to leave its old statePosition behind, which is what orders the
+  // sections it lands in.
+  it("writes the new state's position along with its id, name and type", async () => {
+    const t = task({
+      teamId: "team-1",
+      stateId: "in-progress-id",
+      stateName: "In Progress",
+      stateType: "started",
+      statePosition: 2,
+    });
+    vi.mocked(getCachedTasks).mockResolvedValue([t]);
+    vi.mocked(getCachedTeamStates).mockResolvedValue(teamStates([inProgress, done]));
+
+    await markTaskComplete(t.id);
+
+    expect(setCachedTasks).toHaveBeenCalledWith([
+      expect.objectContaining({ stateId: "done-id", stateName: "Done", stateType: "completed", statePosition: 3 }),
+    ]);
+  });
+});
+
+describe("updateLabels", () => {
+  // The labels shown in the list come from labelNames: setting only labelIds left the old
+  // labels on screen until the next pull, indefinitely while offline.
+  it("updates the label names shown along with the ids", async () => {
+    const t = task({ teamId: "team-1", labelIds: ["a"], labelNames: ["Alpha"] });
+    vi.mocked(getCachedTasks).mockResolvedValue([t]);
+    vi.mocked(getCachedTeamLabels).mockResolvedValue(
+      teamLabels([
+        { id: "a", name: "Alpha" },
+        { id: "b", name: "Beta" },
+      ]),
+    );
+
+    await updateLabels(t.id, ["b"]);
+
+    expect(setCachedTasks).toHaveBeenCalledWith([expect.objectContaining({ labelIds: ["b"], labelNames: ["Beta"] })]);
+    expect(enqueueFieldUpdate).toHaveBeenCalledWith(t.id, "labelIds", ["b"], ["a"]);
+  });
+
+  it("keeps the name of a label the task already has even when the team's list lacks it", async () => {
+    const t = task({ teamId: "team-1", labelIds: ["ws"], labelNames: ["suara"] });
+    vi.mocked(getCachedTasks).mockResolvedValue([t]);
+    vi.mocked(getCachedTeamLabels).mockResolvedValue(teamLabels([{ id: "b", name: "Beta" }]));
+
+    await updateLabels(t.id, ["ws", "b"]);
+
+    expect(setCachedTasks).toHaveBeenCalledWith([expect.objectContaining({ labelNames: ["suara", "Beta"] })]);
+  });
+});
+
+describe("rollbackPendingOp", () => {
+  function stateOp(value: string, previousValue: string): SyncOp {
+    return {
+      opId: "op-1",
+      type: "updateField",
+      issueId: "t1",
+      field: "stateId",
+      value,
+      previousValue,
+      createdAt: "2026-11-06T00:00:00.000Z",
+    };
+  }
+
+  // Rolling back used to restore only the stateId, so a refused Mark as Complete left the
+  // task in the Done section under its old state's id.
+  it("puts back the previous state's name, type and position with its id", async () => {
+    const t = task({
+      teamId: "team-1",
+      stateId: "done-id",
+      stateName: "Done",
+      stateType: "completed",
+      statePosition: 3,
+    });
+    vi.mocked(getCachedTasks).mockResolvedValue([t]);
+    vi.mocked(getCachedTeamStates).mockResolvedValue(teamStates([inProgress, done]));
+
+    await rollbackPendingOp(stateOp("done-id", "in-progress-id"));
+
+    expect(setCachedTasks).toHaveBeenCalledWith([
+      expect.objectContaining({
+        stateId: "in-progress-id",
+        stateName: "In Progress",
+        stateType: "started",
+        statePosition: 2,
+      }),
+    ]);
+  });
+});
+
+describe("refreshItemsFromLinear with a queued state change", () => {
+  // Laying a pending stateId over the pull used to set only the id, so the task showed
+  // under Linear's (old) state name while carrying the queued state's id.
+  it("shows the queued state's name and type, from the metadata pulled alongside", async () => {
+    vi.mocked(getCachedTasks).mockResolvedValue([]);
+    vi.mocked(fetchAssignedIssues).mockResolvedValue({
+      tasks: [
+        task({
+          teamId: "team-1",
+          stateId: "in-progress-id",
+          stateName: "In Progress",
+          stateType: "started",
+          statePosition: 2,
+        }),
+      ],
+      teamLabels: new Map(),
+      teamStates: teamStates([inProgress, done]),
+      teams: [],
+    });
+    vi.mocked(getQueue).mockResolvedValue([
+      {
+        opId: "op-1",
+        type: "updateField",
+        issueId: "t1",
+        field: "stateId",
+        value: "done-id",
+        previousValue: "in-progress-id",
+        createdAt: "2026-11-06T00:00:00.000Z",
+      },
+    ]);
+
+    const merged = await refreshItemsFromLinear();
+
+    expect(merged).toEqual([
+      expect.objectContaining({ stateId: "done-id", stateName: "Done", stateType: "completed", statePosition: 3 }),
+    ]);
+  });
+});
+
+describe("promoteToLinear", () => {
+  it("takes the state's name, type and position from the team's states", async () => {
+    vi.mocked(getCachedTasks).mockResolvedValue([
+      task({ syncState: "local", stateName: "Todo", stateType: "unstarted" }),
+    ]);
+    vi.mocked(getCachedTeamStates).mockResolvedValue(teamStates([todo, inProgress]));
+
+    await promoteToLinear("t1", { id: "team-1", name: "General" }, "in-progress-id");
+
+    expect(setCachedTasks).toHaveBeenCalledWith([
+      expect.objectContaining({
+        syncState: "pendingCreate",
+        teamId: "team-1",
+        teamName: "General",
+        stateId: "in-progress-id",
+        stateName: "In Progress",
+        stateType: "started",
+        statePosition: 2,
+      }),
+    ]);
+    expect(enqueueCreate).toHaveBeenCalledWith(
+      "t1",
+      expect.objectContaining({ teamId: "team-1", stateId: "in-progress-id" }),
+    );
   });
 });

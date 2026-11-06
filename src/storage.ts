@@ -109,12 +109,15 @@ export async function retrievePendingCommentsForTask(taskId: string): Promise<Is
 
 export async function refreshItemsFromLinear(): Promise<Task[]> {
   const { tasks: fresh, teamLabels, teamStates, teams } = await fetchAssignedIssues();
+  // Pending ops are laid over Linear's answer using the team metadata from that same answer,
+  // so a queued state or label change shows with the names that go with it.
+  const lookup: TeamMetadataLookup = { states: teamStates, labels: teamLabels };
   // The local-only tasks and pending ops are read only once the fetch is back and under the
   // lock, so a task created while Linear was answering is kept rather than overwritten.
   const { next: combined } = await updateCachedTasks(async (cached) => {
     const localOnly = cached.filter((task) => task.syncState !== "synced");
     const queue = await getQueue();
-    return [...localOnly, ...applyPendingOpsToAll(fresh, queue)];
+    return [...localOnly, ...applyPendingOpsToAll(fresh, queue, lookup)];
   });
   await Promise.all([setCachedTeamLabels(teamLabels), setCachedTeamStates(teamStates), setCachedTeams(teams)]);
   return combined;
@@ -134,20 +137,41 @@ export async function markTaskTodo(taskId: string): Promise<void> {
   await moveTaskToState(taskId, (task) => resolveMoveTarget(task, "unstarted"));
 }
 
+// A state to move a task to, named the way each kind of task knows its states: a Linear
+// task by the id of one of its team's states, a local-only task by the type of one of
+// LOCAL_STAGES. Only that is passed in — the name, type and position that go with it are
+// looked up here, so a caller can't hand over an id paired with another state's name.
+export type StateChoice = { stateId: string } | { localStageType: WorkflowStateType };
+
 // Complete/In Progress are the two most common transitions and get their own one-key
 // shortcuts; this is the general-purpose escape hatch for moving to any other state a
 // team has (Triage, Backlog, a custom state, or moving something back out of Done) — or,
 // for a local-only task, any of the fixed LOCAL_STAGES.
-export async function changeTaskState(
-  taskId: string,
-  targetStateId: string | undefined,
-  targetStateName: string,
-  targetStateType: WorkflowStateType,
-): Promise<void> {
-  await moveTaskToState(taskId, async () => ({ id: targetStateId, name: targetStateName, type: targetStateType }));
+export async function changeTaskState(taskId: string, choice: StateChoice): Promise<void> {
+  await moveTaskToState(taskId, async (task) => {
+    if ("localStageType" in choice) {
+      const stage = findLocalStage(choice.localStageType);
+      return stage ? { name: stage.name, type: stage.type } : undefined;
+    }
+    if (!task.teamId) return undefined;
+    const state = (await retrieveStatesForTeam(task.teamId)).find((s) => s.id === choice.stateId);
+    return state ? toStateRef(state) : undefined;
+  });
 }
 
-type MoveTarget = { id?: string; name: string; type: WorkflowStateType };
+// A task's state as one value: the id Linear knows it by (none for a local-only stage)
+// together with the name, type and position shown for it. They're only ever written to a
+// task together (withState) — a stateId from one state next to the name and type of another
+// is a task in the wrong section, with the wrong Complete/In Progress toggle.
+type StateRef = { id?: string; name: string; type: WorkflowStateType; position?: number };
+
+function toStateRef(state: CachedState): StateRef {
+  return { id: state.id, name: state.name, type: state.type as WorkflowStateType, position: state.position };
+}
+
+function withState(task: Task, state: StateRef): Task {
+  return { ...task, stateId: state.id, stateName: state.name, stateType: state.type, statePosition: state.position };
+}
 
 // A task's team (if any) is the single source of truth for what "completed"/"started"
 // resolve to — resolved on demand from the team's cached states rather than precomputed
@@ -156,7 +180,7 @@ type MoveTarget = { id?: string; name: string; type: WorkflowStateType };
 // sync that could drift out of date between syncs). Local-only tasks have no team, so they
 // use the fixed LOCAL_STAGES instead — the only thing that makes a task "local" is whether
 // it exists in Linear, not whether it has a meaningful stage to move through.
-async function resolveMoveTarget(task: Task, type: WorkflowStateType): Promise<MoveTarget | undefined> {
+async function resolveMoveTarget(task: Task, type: WorkflowStateType): Promise<StateRef | undefined> {
   if (task.syncState === "local") {
     const stage = findLocalStage(type);
     return stage ? { name: stage.name, type: stage.type } : undefined;
@@ -164,12 +188,20 @@ async function resolveMoveTarget(task: Task, type: WorkflowStateType): Promise<M
   if (!task.teamId) return undefined;
   const states = await retrieveStatesForTeam(task.teamId);
   const target = resolveStateOfType(states, type);
-  return target ? { id: target.id, name: target.name, type: target.type as WorkflowStateType } : undefined;
+  return target ? toStateRef(target) : undefined;
+}
+
+// A Linear task is in a state when it has that state's id: names aren't unique across a
+// team's history (a state can be renamed, another given its old name). Local-only stages
+// have no id, and each type appears in LOCAL_STAGES once.
+function isInState(task: Task, target: StateRef): boolean {
+  if (task.syncState === "local") return task.stateType === target.type && task.stateName === target.name;
+  return task.stateId === target.id;
 }
 
 async function moveTaskToState(
   taskId: string,
-  resolveTarget: (task: Task) => Promise<MoveTarget | undefined>,
+  resolveTarget: (task: Task) => Promise<StateRef | undefined>,
 ): Promise<void> {
   const { previous, next } = await updateCachedTasks(async (cached) => {
     const task = cached.find((t) => t.id === taskId);
@@ -184,11 +216,9 @@ async function moveTaskToState(
     if (task.syncState !== "local" && !target.id) {
       throw new Error(`No matching state found in Linear for "${task.title}"'s team`);
     }
-    if (task.stateName === target.name && task.stateType === target.type) return cached;
+    if (isInState(task, target)) return cached;
 
-    return cached.map((t) =>
-      t.id === task.id ? { ...t, stateId: target.id, stateName: target.name, stateType: target.type } : t,
-    );
+    return cached.map((t) => (t.id === task.id ? withState(t, target) : t));
   });
   if (next === previous) return;
 
@@ -220,9 +250,10 @@ export async function updateDescription(taskId: string, description: string | un
 }
 
 async function updateTaskField(taskId: string, field: SyncOpField, value: unknown): Promise<void> {
+  const lookup = await readTeamMetadataLookup();
   const { previous, next } = await updateCachedTasks((cached) => {
     if (!cached.some((t) => t.id === taskId)) return cached;
-    return cached.map((t) => (t.id === taskId ? applyOpToTask(t, field, value) : t));
+    return cached.map((t) => (t.id === taskId ? applyOpToTask(t, field, value, lookup) : t));
   });
   if (next === previous) return;
 
@@ -322,19 +353,20 @@ export async function createTask(input: CreateTaskInput): Promise<string> {
 // Promotes a local-only task to a pendingCreate one, reusing the exact same tempId ->
 // real-id flow as createTask(saveToLinear: true) — from here on it's indistinguishable
 // from a task that was saved to Linear from the start.
-export async function promoteToLinear(
-  taskId: string,
-  teamId: string,
-  teamName: string,
-  stateId: string,
-  stateName: string,
-  stateType: Task["stateType"],
-): Promise<void> {
+export async function promoteToLinear(taskId: string, team: CachedTeam, stateId: string): Promise<void> {
+  const state = (await retrieveStatesForTeam(team.id)).find((s) => s.id === stateId);
+  if (!state) throw new Error(`No matching state found in Linear for ${team.name}`);
+
   const { previous, next } = await updateCachedTasks((cached) => {
     if (!cached.some((t) => t.id === taskId && t.syncState === "local")) return cached;
     return cached.map((t) =>
       t.id === taskId
-        ? { ...t, syncState: "pendingCreate" as const, teamId, teamName, stateId, stateName, stateType }
+        ? {
+            ...withState(t, toStateRef(state)),
+            syncState: "pendingCreate" as const,
+            teamId: team.id,
+            teamName: team.name,
+          }
         : t,
     );
   });
@@ -342,12 +374,12 @@ export async function promoteToLinear(
   if (next === previous || !task) return;
 
   const createInput: CreateIssueInput = {
-    teamId,
+    teamId: team.id,
     title: task.title,
     description: task.description,
     dueDate: task.dueDate,
     priority: task.priority,
-    stateId,
+    stateId: state.id,
     labelIds: task.labelIds,
   };
   await enqueueCreate(taskId, createInput);
@@ -377,17 +409,29 @@ export async function rollbackPendingOp(op: SyncOp): Promise<void> {
     return;
   }
 
+  const lookup = await readTeamMetadataLookup();
   await updateCachedTasks((cached) =>
-    cached.map((task) => (task.id === op.issueId ? rollbackOpOnTask(task, op) : task)),
+    cached.map((task) => (task.id === op.issueId ? rollbackOpOnTask(task, op, lookup) : task)),
   );
 }
 
-function rollbackOpOnTask(task: Task, op: UpdateFieldOp | ArchiveOp): Task {
-  if (op.type === "updateField") return applyOpToTask(task, op.field, op.previousValue);
+function rollbackOpOnTask(task: Task, op: UpdateFieldOp | ArchiveOp, lookup: TeamMetadataLookup): Task {
+  if (op.type === "updateField") return applyOpToTask(task, op.field, op.previousValue, lookup);
   return { ...task, archivedLocally: false };
 }
 
-function applyPendingOpsToAll(tasks: Task[], queue: SyncOp[]): Task[] {
+// The cached team states and labels — what a state id or label id on a task stands for.
+type TeamMetadataLookup = {
+  states: Map<string, CachedState[]>;
+  labels: Map<string, CachedLabel[]>;
+};
+
+async function readTeamMetadataLookup(): Promise<TeamMetadataLookup> {
+  const [states, labels] = await Promise.all([getCachedTeamStates(), getCachedTeamLabels()]);
+  return { states, labels };
+}
+
+function applyPendingOpsToAll(tasks: Task[], queue: SyncOp[], lookup: TeamMetadataLookup): Task[] {
   if (queue.length === 0) return tasks;
 
   const pendingByIssue = new Map<string, SyncOp[]>();
@@ -401,7 +445,7 @@ function applyPendingOpsToAll(tasks: Task[], queue: SyncOp[]): Task[] {
     const pendingOps = pendingByIssue.get(task.id);
     if (!pendingOps) return task;
     return pendingOps.reduce((acc, op) => {
-      if (op.type === "updateField") return applyOpToTask(acc, op.field, op.value);
+      if (op.type === "updateField") return applyOpToTask(acc, op.field, op.value, lookup);
       if (op.type === "archive") return { ...acc, archivedLocally: true };
       // A "create" op never matches here (its issueId is a tempId that `tasks`, fetched
       // fresh from Linear, can't contain yet), and a pending comment changes nothing on
@@ -411,10 +455,19 @@ function applyPendingOpsToAll(tasks: Task[], queue: SyncOp[]): Task[] {
   });
 }
 
-function applyOpToTask(task: Task, field: SyncOpField, value: unknown): Task {
+// An op stores only what Linear is sent — a state id, label ids. Applying one (optimistically,
+// as a rollback, or over a fresh pull) has to bring along what the task shows for those ids,
+// or the task keeps the old state's name and type, or the old labels' names, next to the new
+// ids until the next pull.
+function applyOpToTask(task: Task, field: SyncOpField, value: unknown, lookup: TeamMetadataLookup): Task {
   switch (field) {
-    case "stateId":
-      return { ...task, stateId: value as string };
+    case "stateId": {
+      const state = task.teamId ? lookup.states.get(task.teamId)?.find((s) => s.id === value) : undefined;
+      // An id the team's states don't have (deleted in Linear since, say) leaves the task as
+      // it is instead of pairing that id with another state's name and type. The pull that
+      // follows every push says where the issue really is.
+      return state ? withState(task, toStateRef(state)) : task;
+    }
     case "title":
       return { ...task, title: value as string };
     case "dueDate":
@@ -423,9 +476,25 @@ function applyOpToTask(task: Task, field: SyncOpField, value: unknown): Task {
       return { ...task, priority: value as number };
     case "description":
       return { ...task, description: value as string | undefined };
-    case "labelIds":
-      return { ...task, labelIds: value as string[] };
+    case "labelIds": {
+      const labelIds = value as string[];
+      return { ...task, labelIds, labelNames: labelNamesFor(task, labelIds, lookup) };
+    }
   }
+}
+
+// Names for label ids: the team's labels, plus the task's own current ones for an id the
+// team's list doesn't have (a label newer than the cache, say), so a label the task already
+// carries never loses its name. labelNames stays index-aligned with labelIds; an id with no
+// name anywhere shows as the id until the next pull brings its name.
+function labelNamesFor(task: Task, labelIds: string[], lookup: TeamMetadataLookup): string[] {
+  const names = new Map<string, string>();
+  task.labelIds.forEach((id, index) => {
+    const name = task.labelNames[index];
+    if (name !== undefined) names.set(id, name);
+  });
+  for (const label of (task.teamId && lookup.labels.get(task.teamId)) || []) names.set(label.id, label.name);
+  return labelIds.map((id) => names.get(id) ?? id);
 }
 
 function getFieldValue(task: Task, field: SyncOpField): unknown {
