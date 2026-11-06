@@ -10,6 +10,7 @@ import {
   RawCommentNode,
   resolveStateOfType,
   toIssueComment,
+  updateIssueField,
 } from "./linearApi";
 import { isLinearUnreachable } from "./linearErrors";
 
@@ -256,6 +257,28 @@ describe("fetchAssignedIssues", () => {
 
     expect(failure).toBeInstanceOf(LinearError);
     expect(isLinearUnreachable(failure)).toBe(true);
+  });
+});
+
+describe("updateIssueField", () => {
+  // The bug: a cleared due date or description was sent as undefined, which the request
+  // body leaves out — Linear got an empty update, accepted it, and the old value came back.
+  it("sends a cleared field as null, which is how Linear is told to clear it", async () => {
+    const updateIssue = vi.fn(async () => ({}));
+    mockClient({ updateIssue });
+
+    await updateIssueField("issue-1", "dueDate", undefined);
+
+    expect(updateIssue).toHaveBeenCalledWith("issue-1", { dueDate: null });
+  });
+
+  it("sends a set field as it is", async () => {
+    const updateIssue = vi.fn(async () => ({}));
+    mockClient({ updateIssue });
+
+    await updateIssueField("issue-1", "dueDate", "2026-11-10");
+
+    expect(updateIssue).toHaveBeenCalledWith("issue-1", { dueDate: "2026-11-10" });
   });
 });
 

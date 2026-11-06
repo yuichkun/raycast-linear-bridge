@@ -338,9 +338,13 @@ export async function fetchAssignedIssues(): Promise<FetchAssignedIssuesResult> 
   return { tasks, teamLabels, teamStates, teams };
 }
 
+// A cleared field (no due date, no description) is sent as null, which is how Linear is told
+// to clear it. As undefined it never got there: the queue file drops undefined values, and the
+// request body would leave the key out anyway, so Linear was sent an empty update, accepted it,
+// and the next pull brought the old value back.
 export async function updateIssueField(issueId: string, field: SyncOpField, value: unknown): Promise<void> {
   const client = getLinearClient();
-  await client.updateIssue(issueId, { [field]: value });
+  await client.updateIssue(issueId, { [field]: value === undefined ? null : value });
 }
 
 export async function archiveIssue(issueId: string): Promise<void> {
