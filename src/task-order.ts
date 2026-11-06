@@ -66,14 +66,21 @@ export function classifyTask(task: Task): SectionKind {
   return "state";
 }
 
-function stateSortKey(task: Task): number {
+// Type first, then position within the type, compared one after the other. Folding both
+// into one number (type * 1_000_000 + position) only held while every position stayed
+// below a million — Linear's positions are open-ended floats.
+type SortKey = { typeOrder: number; position: number };
+
+function compareSortKeys(a: SortKey, b: SortKey): number {
+  return a.typeOrder - b.typeOrder || a.position - b.position;
+}
+
+function stateSortKey(task: Task): SortKey {
   // No stateType at all shouldn't normally happen — every task (local or Linear) carries a
   // real stage now — but sorts before every real state as a defensive fallback rather than
   // silently landing at the bottom behind Backlog if one ever does slip through.
-  if (!task.stateType) return -1_000_000;
-  const typeOrder = STATUS_TYPE_ORDER[task.stateType] ?? 99;
-  const position = task.statePosition ?? 0;
-  return typeOrder * 1_000_000 + position;
+  if (!task.stateType) return { typeOrder: -1, position: 0 };
+  return { typeOrder: STATUS_TYPE_ORDER[task.stateType] ?? 99, position: task.statePosition ?? 0 };
 }
 
 export type Section = {
@@ -101,7 +108,7 @@ function sortByDueDate(tasks: Task[]): Task[] {
 export function groupTasksBySection(tasks: Task[]): Section[] {
   const outdated: Task[] = [];
   const complete: Task[] = [];
-  const stateGroups = new Map<string, { sortKey: number; stateType?: WorkflowStateType; tasks: Task[] }>();
+  const stateGroups = new Map<string, { sortKey: SortKey; stateType?: WorkflowStateType; tasks: Task[] }>();
 
   for (const task of tasks) {
     const kind = classifyTask(task);
@@ -127,7 +134,7 @@ export function groupTasksBySection(tasks: Task[]): Section[] {
     const existing = stateGroups.get(key);
     if (existing) {
       existing.tasks.push(task);
-      existing.sortKey = Math.min(existing.sortKey, sortKey);
+      if (compareSortKeys(sortKey, existing.sortKey) < 0) existing.sortKey = sortKey;
     } else {
       stateGroups.set(key, { sortKey, stateType: task.stateType, tasks: [task] });
     }
@@ -135,7 +142,7 @@ export function groupTasksBySection(tasks: Task[]): Section[] {
 
   const emojiIndexByType = new Map<WorkflowStateType, number>();
   const stateSections: Section[] = [...stateGroups.entries()]
-    .sort(([, a], [, b]) => a.sortKey - b.sortKey)
+    .sort(([, a], [, b]) => compareSortKeys(a.sortKey, b.sortKey))
     .map(([name, group]) => {
       let emoji: string | undefined;
       if (!group.stateType) {

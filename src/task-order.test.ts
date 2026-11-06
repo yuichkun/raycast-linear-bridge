@@ -239,6 +239,18 @@ describe("groupTasksBySection", () => {
     expect(stateSections[0].tasks.map((t) => t.id).sort()).toEqual(["g", "s"]);
   });
 
+  // The sort key used to be type * 1_000_000 + position, which put a state with a position of
+  // a million or more after every state of the next type.
+  it("keeps the type order whatever size the positions are", () => {
+    const started = task("s", { stateName: "Long Running", stateType: "started", statePosition: 2_500_000 });
+    const unstarted = task("u", { stateName: "Todo", stateType: "unstarted", statePosition: 1 });
+
+    const sections = groupTasksBySection([unstarted, started]);
+    const stateSections = sections.filter((s) => s.key !== "outdated" && s.key !== "complete");
+
+    expect(stateSections.map((s) => s.key)).toEqual(["Long Running", "Todo"]);
+  });
+
   it("uses the lower position when the same-named state has different positions per team", () => {
     const higherPosition = task("h", {
       stateId: "team-a-pending",
