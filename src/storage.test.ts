@@ -28,6 +28,7 @@ import {
   refreshItemsFromLinear,
   renameTask,
   retrievePendingCommentsForTask,
+  retrieveSectionEmoji,
   rollbackPendingOp,
   updateLabels,
 } from "./storage";
@@ -36,6 +37,16 @@ import { Task } from "./types";
 // Stands in for what updateCachedTasks writes, so tests read the cache from getCachedTasks
 // and assert on the write here, without the file lock.
 const setCachedTasks = vi.hoisted(() => vi.fn());
+
+// Stands in for sectionEmoji.json.
+const sectionEmojiFile = vi.hoisted(() => ({ current: {} as Record<string, string> }));
+
+vi.mock("./repository/sectionEmojiFile", () => ({
+  updateSectionEmoji: vi.fn(async (update: (current: Record<string, string>) => Record<string, string>) => {
+    sectionEmojiFile.current = update(sectionEmojiFile.current);
+    return sectionEmojiFile.current;
+  }),
+}));
 
 vi.mock("./repository/localCache", () => {
   const getCachedTasks = vi.fn();
@@ -108,6 +119,34 @@ beforeEach(() => {
   vi.mocked(getPendingOpsForIssue).mockReset().mockResolvedValue([]);
   vi.mocked(getCachedTeamStates).mockReset().mockResolvedValue(new Map());
   vi.mocked(getCachedTeamLabels).mockReset().mockResolvedValue(new Map());
+  sectionEmojiFile.current = {};
+});
+
+describe("retrieveSectionEmoji", () => {
+  it("gives every team's statuses and the local-only stages an emoji", async () => {
+    const pending: CachedState = { id: "pending-id", name: "Pending", type: "started", position: 5 };
+    vi.mocked(getCachedTeamStates).mockResolvedValue(
+      new Map([
+        ["team-1", [todo, inProgress, pending, done]],
+        ["team-2", [{ ...inProgress, id: "other-in-progress-id" }]],
+      ]),
+    );
+
+    const emoji = await retrieveSectionEmoji();
+
+    // Backlog comes from LOCAL_STAGES: neither team has a Linear status of that name.
+    expect(emoji).toEqual({ "In Progress": "🔥", Pending: "⚡", Todo: "📝", Backlog: "🗂️" });
+  });
+
+  it("keeps what was already assigned when a status turns up ahead of it", async () => {
+    sectionEmojiFile.current = { "In Progress": "🔥", Todo: "📝", Backlog: "🗂️" };
+    const longRunning: CachedState = { id: "long-id", name: "Long Running", type: "started", position: 0 };
+    vi.mocked(getCachedTeamStates).mockResolvedValue(teamStates([longRunning, inProgress, todo]));
+
+    const emoji = await retrieveSectionEmoji();
+
+    expect(emoji).toEqual({ "In Progress": "🔥", Todo: "📝", Backlog: "🗂️", "Long Running": "⚡" });
+  });
 });
 
 describe("addComment", () => {

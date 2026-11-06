@@ -1,10 +1,17 @@
 import { ActionPanel, List } from "@raycast/api";
-import { usePromise } from "@raycast/utils";
+import { useCachedPromise, usePromise } from "@raycast/utils";
 import { useEffect, useMemo, useState } from "react";
 import { FilterTeamsAction } from "./actions/FilterTeams";
 import { DueHorizon, parseDueHorizon } from "./date";
 import { useSearch } from "./hooks/useSearch";
-import { retrieveCachedItems, retrieveDueHorizon, retrieveVisibleTeamIds, updateDueHorizon } from "./storage";
+import { SectionEmoji } from "./sectionEmoji";
+import {
+  retrieveCachedItems,
+  retrieveDueHorizon,
+  retrieveSectionEmoji,
+  retrieveVisibleTeamIds,
+  updateDueHorizon,
+} from "./storage";
 import { runSync } from "./sync/runSync";
 import { groupTasksBySection, restrictToDueHorizon, restrictToVisibleTeams } from "./task-order";
 import { TaskLineItem } from "./TaskLineItem";
@@ -14,6 +21,7 @@ import { Task } from "./types";
 // results are memoized on the task array, and a new array every render would recompute
 // both on every render for as long as the cache is still loading.
 const NO_TASKS: Task[] = [];
+const NO_SECTION_EMOJI: SectionEmoji = {};
 
 const DUE_HORIZON_TITLES: Record<DueHorizon, string> = {
   all: "All",
@@ -32,9 +40,15 @@ export default function Command() {
   const cache = usePromise(retrieveCachedItems, [], {
     failureToastOptions: { title: "Couldn't read the task cache" },
   });
+  // useCachedPromise so a launch opens with the emoji it had last time instead of showing the
+  // sections bare until the file is read. Re-read after every sync: a sync can bring statuses
+  // that haven't been given one yet.
+  const sectionEmoji = useCachedPromise(retrieveSectionEmoji, [], {
+    failureToastOptions: { title: "Couldn't read the section emoji" },
+  });
   const sync = usePromise(runSync, [], {
     onData: async () => {
-      await cache.revalidate();
+      await Promise.all([cache.revalidate(), sectionEmoji.revalidate()]);
     },
     failureToastOptions: { title: "Couldn't sync with Linear" },
   });
@@ -102,7 +116,7 @@ export default function Command() {
 
   const { searchText, setSearchText, filteredItems } = useSearch(visibleTasks);
   const filteredTaskIds = new Set(filteredItems.map((task) => task.id));
-  const sections = groupTasksBySection(visibleTasks);
+  const sections = groupTasksBySection(visibleTasks, sectionEmoji.data ?? NO_SECTION_EMOJI);
   const visibleSections = sections.map((section) => ({
     ...section,
     // Preserve todo-buddy's behavior: outdated tasks ignore the active search filter,

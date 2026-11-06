@@ -12,8 +12,10 @@ import {
   setCachedTeamStates,
   updateCachedTasks,
 } from "./repository/localCache";
-import { DEFAULT_LOCAL_STAGE, findLocalStage } from "./localStages";
+import { DEFAULT_LOCAL_STAGE, findLocalStage, LOCAL_STAGES } from "./localStages";
 import { fetchAssignedIssues, fetchIssueComments, resolveStateOfType } from "./repository/linearApi";
+import { updateSectionEmoji } from "./repository/sectionEmojiFile";
+import { assignSectionEmoji, SectionEmoji, SectionEmojiCandidate } from "./sectionEmoji";
 import { getDueHorizon, getVisibleTeamIds, setDueHorizon, setVisibleTeamIds } from "./repository/settings";
 import { DueHorizon } from "./date";
 import {
@@ -68,6 +70,16 @@ export async function retrieveDueHorizon(): Promise<DueHorizon> {
 
 export async function updateDueHorizon(horizon: DueHorizon): Promise<void> {
   await setDueHorizon(horizon);
+}
+
+// Each status section's emoji, assigning one to any status name that doesn't have one yet —
+// every team's statuses in the cache, plus the stages local-only tasks use (for a workspace
+// with no Linear status of the same name). Assignments are only ever added, never changed;
+// see sectionEmoji.ts.
+export async function retrieveSectionEmoji(): Promise<SectionEmoji> {
+  const teamStates = await getCachedTeamStates();
+  const candidates: SectionEmojiCandidate[] = [...[...teamStates.values()].flat(), ...LOCAL_STAGES];
+  return updateSectionEmoji((current) => assignSectionEmoji(current, candidates));
 }
 
 // Comments are read live rather than cached: they're only needed while a task's detail

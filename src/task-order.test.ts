@@ -148,14 +148,17 @@ describe("restrictToDueHorizon", () => {
 });
 
 describe("groupTasksBySection", () => {
+  // What sectionEmoji.ts would have assigned these statuses.
+  const EMOJI = { "In Progress": "🔥", Pending: "⚡", Todo: "📝", Triage: "📥", Backlog: "🗂️" };
+
   it("always includes Outdated and Complete sections, even when empty", () => {
-    const sections = groupTasksBySection([]);
+    const sections = groupTasksBySection([], EMOJI);
     expect(sections.map((s) => s.key)).toEqual(["outdated", "complete"]);
     expect(sections.every((s) => s.tasks.length === 0)).toBe(true);
   });
 
   it("drops canceled/duplicate tasks entirely", () => {
-    const sections = groupTasksBySection([task("c", { stateType: "canceled" })]);
+    const sections = groupTasksBySection([task("c", { stateType: "canceled" })], EMOJI);
     const allTasks = sections.flatMap((s) => s.tasks);
     expect(allTasks).toHaveLength(0);
   });
@@ -174,7 +177,7 @@ describe("groupTasksBySection", () => {
       statePosition: 0,
     });
 
-    const sections = groupTasksBySection([pending, inProgress]);
+    const sections = groupTasksBySection([pending, inProgress], EMOJI);
     const stateSections = sections.filter((s) => s.key !== "outdated" && s.key !== "complete");
 
     expect(stateSections).toHaveLength(2);
@@ -190,7 +193,7 @@ describe("groupTasksBySection", () => {
     const unstarted = task("u", { stateId: "s3", stateName: "Todo", stateType: "unstarted" });
     const started = task("s", { stateId: "s1", stateName: "In Progress", stateType: "started" });
 
-    const sections = groupTasksBySection([backlog, triage, unstarted, started]);
+    const sections = groupTasksBySection([backlog, triage, unstarted, started], EMOJI);
     const stateSections = sections.filter((s) => s.key !== "outdated" && s.key !== "complete");
 
     // What's already being worked on should surface above what hasn't been started,
@@ -201,7 +204,7 @@ describe("groupTasksBySection", () => {
 
   it("keeps overdue tasks in Outdated regardless of their state", () => {
     const overdue = task("o", { dueDate: "2000-01-01", stateType: "started" });
-    const sections = groupTasksBySection([overdue]);
+    const sections = groupTasksBySection([overdue], EMOJI);
     const outdatedSection = sections.find((s) => s.key === "outdated");
     expect(outdatedSection?.tasks.map((t) => t.id)).toEqual(["o"]);
   });
@@ -209,7 +212,7 @@ describe("groupTasksBySection", () => {
   it("groups tasks sharing the same stateId into one section", () => {
     const a = task("a", { stateId: "shared", stateName: "Todo", stateType: "unstarted" });
     const b = task("b", { stateId: "shared", stateName: "Todo", stateType: "unstarted" });
-    const sections = groupTasksBySection([a, b]);
+    const sections = groupTasksBySection([a, b], EMOJI);
     const stateSections = sections.filter((s) => s.key !== "outdated" && s.key !== "complete");
     expect(stateSections).toHaveLength(1);
     expect(stateSections[0].tasks.map((t) => t.id)).toEqual(["a", "b"]);
@@ -231,7 +234,7 @@ describe("groupTasksBySection", () => {
       teamId: "team-suara",
     });
 
-    const sections = groupTasksBySection([generalBacklog, suaraBacklog]);
+    const sections = groupTasksBySection([generalBacklog, suaraBacklog], EMOJI);
     const stateSections = sections.filter((s) => s.key !== "outdated" && s.key !== "complete");
 
     expect(stateSections).toHaveLength(1);
@@ -245,7 +248,7 @@ describe("groupTasksBySection", () => {
     const started = task("s", { stateName: "Long Running", stateType: "started", statePosition: 2_500_000 });
     const unstarted = task("u", { stateName: "Todo", stateType: "unstarted", statePosition: 1 });
 
-    const sections = groupTasksBySection([unstarted, started]);
+    const sections = groupTasksBySection([unstarted, started], EMOJI);
     const stateSections = sections.filter((s) => s.key !== "outdated" && s.key !== "complete");
 
     expect(stateSections.map((s) => s.key)).toEqual(["Long Running", "Todo"]);
@@ -272,7 +275,7 @@ describe("groupTasksBySection", () => {
     });
 
     // Feed the higher-position one first to make sure it doesn't "win" by being seen first.
-    const sections = groupTasksBySection([higherPosition, inProgress, lowerPosition]);
+    const sections = groupTasksBySection([higherPosition, inProgress, lowerPosition], EMOJI);
     const stateSections = sections.filter((s) => s.key !== "outdated" && s.key !== "complete");
 
     // Both "Pending" entries collapse to position 1 (the lower of 5 and 1), which still
@@ -280,21 +283,27 @@ describe("groupTasksBySection", () => {
     expect(stateSections.map((s) => s.title)).toEqual(["🔥 In Progress", "⚡ Pending"]);
   });
 
-  it("gives same-type sections distinct emoji instead of visually re-merging them", () => {
-    const pending = task("p", { stateId: "s1", stateName: "Pending", stateType: "started", statePosition: 0 });
-    const inProgress = task("ip", {
-      stateId: "s2",
-      stateName: "In Progress",
-      stateType: "started",
-      statePosition: 1,
-    });
-    const reviewing = task("r", { stateId: "s3", stateName: "Reviewing", stateType: "started", statePosition: 2 });
+  // The bug: emoji went out in display order, so Pending was ⚡ next to In Progress and 🔥
+  // once In Progress had no tasks left to show.
+  it("shows a section's own emoji whatever other sections are on screen", () => {
+    const pending = task("p", { stateId: "s1", stateName: "Pending", stateType: "started", statePosition: 5 });
+    const inProgress = task("ip", { stateId: "s2", stateName: "In Progress", stateType: "started", statePosition: 2 });
 
-    const sections = groupTasksBySection([pending, inProgress, reviewing]);
-    const stateSections = sections.filter((s) => s.key !== "outdated" && s.key !== "complete");
-    const emojis = stateSections.map((s) => s.title.split(" ")[0]);
+    const titlesWith = (tasks: Task[]) =>
+      groupTasksBySection(tasks, EMOJI)
+        .filter((s) => s.key !== "outdated" && s.key !== "complete")
+        .map((s) => s.title);
 
-    expect(new Set(emojis).size).toBe(emojis.length);
+    expect(titlesWith([pending, inProgress])).toEqual(["🔥 In Progress", "⚡ Pending"]);
+    expect(titlesWith([pending])).toEqual(["⚡ Pending"]);
+  });
+
+  it("shows a status with no emoji assigned yet without one, rather than borrowing another's", () => {
+    const reviewing = task("r", { stateId: "s3", stateName: "Reviewing", stateType: "started", statePosition: 6 });
+
+    const sections = groupTasksBySection([reviewing], EMOJI);
+
+    expect(sections.find((s) => s.key === "Reviewing")?.title).toBe("Reviewing");
   });
 
   it("sorts the New section (local-only/pending tasks with no real state yet) before every other dynamic section", () => {
@@ -305,7 +314,7 @@ describe("groupTasksBySection", () => {
     const started = task("s", { stateId: "s1", stateName: "In Progress", stateType: "started" });
     const newTask = task("n", { stateId: undefined, stateName: "New", stateType: undefined });
 
-    const sections = groupTasksBySection([backlog, started, newTask]);
+    const sections = groupTasksBySection([backlog, started, newTask], EMOJI);
     const stateSections = sections.filter((s) => s.key !== "outdated" && s.key !== "complete");
 
     expect(stateSections.map((s) => s.title)).toEqual(["🆕 New", "🔥 In Progress", "🗂️ Backlog"]);
