@@ -47,6 +47,8 @@ That's it — no OAuth, no separate "who am I" setting. Linear resolves the key'
 
 `⌘D` (no Shift) toggles the inline detail panel next to the list on and off.
 
+Mark as Complete, Mark as In Progress and Mark as Todo move a Linear task to the **first** state of that type in its team's workflow — the one listed first under Completed, Started or Unstarted in the team's workflow settings in Linear (the same "first Started status" rule Linear's own automations use). Reordering a team's states in Linear changes where these shortcuts send a task. For any other state, use Change Status.
+
 ## Team filter
 
 **Filter Teams** (`⌘⇧F`) opens a form where you pick the teams whose tasks List Tasks shows — an explicit allow-list. An empty selection shows every team. It's a display-level filter only:
@@ -93,6 +95,8 @@ The only thing "local-only" changes is whether the task exists in Linear — not
 
 - Every mutation (complete, edit, archive, …) writes to a local cache immediately and returns — there is no waiting on a network request.
 - Changes are queued and pushed to Linear in the background, both right after you make them and on a 5-minute interval.
-- If you're offline, changes simply queue up until the next successful sync; nothing is lost.
+- If you're offline, changes simply queue up until the next successful sync; nothing is lost. The same goes for when Linear answers but doesn't take the change — it's rate limiting, failing on its side (5xx), or not accepting the API key: the change stays queued and is sent again on a later sync. Changes to one issue always reach Linear in the order they were made.
+- Only a change Linear actually refuses (a validation error, say) is rolled back locally, and the Sync command reports it. A task Linear refuses to create goes back to being local-only, with what you wrote in it, rather than disappearing.
+- A task saved to Linear works like any other while its create is still queued: edits, status changes and archiving are queued behind the create and follow it to Linear.
 - Creating things is idempotent: a queued issue or comment carries a client-generated UUID that Linear adopts as its id, so a change sent twice (overlapping syncs, or a process torn down between sending and dequeuing) can never become a duplicate. Sync runs within one process are also serialized, with at most one follow-up run chained behind the current one.
 - Manual reordering and pinning — which existed in Todo Buddy — were deliberately dropped in favor of Linear's own per-state sections, since Linear's own manual ordering is shared workspace-wide and would otherwise quietly reorder things for your teammates too.
