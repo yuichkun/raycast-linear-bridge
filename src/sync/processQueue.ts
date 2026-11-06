@@ -1,6 +1,6 @@
 import { archiveIssue, createComment, createIssue, updateIssueField } from "../repository/linearApi";
 import { isLinearUnreachable, shouldRetryLater } from "../repository/linearErrors";
-import { dequeue, getQueue, SyncOp } from "../repository/syncQueue";
+import { dequeue, dequeueAllForIssue, getQueue, SyncOp } from "../repository/syncQueue";
 import { resolveCreatedTask, rollbackPendingOp } from "../storage";
 
 export type ProcessQueueResult = {
@@ -48,6 +48,9 @@ async function runQueue(): Promise<ProcessQueueResult> {
   const failures: SyncOp[] = [];
   let networkUnreachable = false;
   let deferred = 0;
+  // Issues whose create Linear rejected in this run. Their later ops were queued against an
+  // issue that will never exist, and were dropped along with it — see below.
+  const abandoned = new Set<string>();
   // Issues with an op left queued in this run. Their later ops wait too: sent past it, they'd
   // reach Linear out of order — a "Done" sent ahead of an earlier "In Progress" that goes
   // through next time leaves the issue In Progress. Other issues' ops carry on, so one op
@@ -55,6 +58,7 @@ async function runQueue(): Promise<ProcessQueueResult> {
   const held = new Set<string>();
 
   for (const op of queue) {
+    if (abandoned.has(op.issueId)) continue;
     if (held.has(op.issueId)) {
       deferred++;
       continue;
@@ -94,7 +98,15 @@ async function runQueue(): Promise<ProcessQueueResult> {
       // Linear looked at the change and refused it (e.g. a validation error) — undo the
       // optimistic local update and surface it, rather than leaving it retrying forever.
       await rollbackPendingOp(op);
-      await dequeue(op.opId);
+      if (op.type === "create") {
+        // Edits made to the task while it waited to be created were queued against the
+        // issue's id-to-be. With no issue coming, they can only fail the same way, and
+        // rolling each back would undo the edit on the task rollbackPendingOp just kept.
+        abandoned.add(op.issueId);
+        await dequeueAllForIssue(op.issueId);
+      } else {
+        await dequeue(op.opId);
+      }
       failures.push(op);
     }
   }

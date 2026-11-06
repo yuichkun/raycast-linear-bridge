@@ -8,6 +8,7 @@ import {
   getCachedTeamStates,
 } from "./repository/localCache";
 import {
+  enqueueArchive,
   enqueueComment,
   enqueueCreate,
   enqueueFieldUpdate,
@@ -17,6 +18,7 @@ import {
 } from "./repository/syncQueue";
 import {
   addComment,
+  archiveTask,
   changeTaskState,
   createTask,
   markTaskComplete,
@@ -24,6 +26,7 @@ import {
   markTaskTodo,
   promoteToLinear,
   refreshItemsFromLinear,
+  renameTask,
   retrievePendingCommentsForTask,
   rollbackPendingOp,
   updateLabels,
@@ -98,6 +101,7 @@ beforeEach(() => {
   vi.mocked(getCachedTasks).mockReset();
   vi.mocked(setCachedTasks).mockReset();
   vi.mocked(enqueueFieldUpdate).mockReset();
+  vi.mocked(enqueueArchive).mockReset();
   vi.mocked(enqueueCreate).mockReset();
   vi.mocked(enqueueComment).mockReset();
   vi.mocked(getQueue).mockReset().mockResolvedValue([]);
@@ -502,6 +506,138 @@ describe("rollbackPendingOp", () => {
         statePosition: 2,
       }),
     ]);
+  });
+
+  const createOp: SyncOp = {
+    opId: "op-create",
+    type: "create",
+    issueId: "temp-1",
+    input: { teamId: "team-1", title: "Draft" },
+    createdAt: "2026-11-06T00:00:00.000Z",
+  };
+
+  // A refused create used to delete the task — and with it everything written in it.
+  it("turns a task whose create Linear refused back into a local-only one, keeping what was written", async () => {
+    const t = task({
+      id: "temp-1",
+      syncState: "pendingCreate",
+      title: "Draft",
+      description: "Notes",
+      dueDate: "2026-11-10",
+      teamId: "team-1",
+      teamName: "General",
+      stateId: "in-progress-id",
+      stateName: "In Progress",
+      stateType: "started",
+      statePosition: 2,
+      labelIds: ["a"],
+      labelNames: ["Alpha"],
+    });
+    vi.mocked(getCachedTasks).mockResolvedValue([t]);
+
+    await rollbackPendingOp(createOp);
+
+    expect(setCachedTasks).toHaveBeenCalledWith([
+      {
+        ...t,
+        syncState: "local",
+        teamId: undefined,
+        teamName: undefined,
+        stateId: undefined,
+        stateName: "In Progress",
+        stateType: "started",
+        statePosition: undefined,
+        labelIds: [],
+        labelNames: [],
+        url: undefined,
+      },
+    ]);
+  });
+
+  it("drops a task whose create Linear refused if it was archived while waiting", async () => {
+    vi.mocked(getCachedTasks).mockResolvedValue([
+      task({ id: "temp-1", syncState: "pendingCreate", archivedLocally: true }),
+    ]);
+
+    await rollbackPendingOp(createOp);
+
+    expect(setCachedTasks).toHaveBeenCalledWith([]);
+  });
+
+  // List Tasks can queue an edit for a pending task just as the Sync process finds its create
+  // refused and turns it back into a local-only one. That edit then fails against an issue
+  // that doesn't exist — and rolling it back would undo the edit on the task that was kept.
+  it("leaves a local-only task's edits alone when an op queued for its refused create fails", async () => {
+    vi.mocked(getCachedTasks).mockResolvedValue([task({ id: "temp-1", syncState: "local", title: "Renamed" })]);
+
+    await rollbackPendingOp({
+      opId: "op-late",
+      type: "updateField",
+      issueId: "temp-1",
+      field: "title",
+      value: "Renamed",
+      previousValue: "Draft",
+      createdAt: "2026-11-06T00:00:00.000Z",
+    });
+
+    expect(setCachedTasks).not.toHaveBeenCalled();
+  });
+});
+
+// A task saved to Linear is "pendingCreate" until its create goes through — for a moment
+// online, for as long as it takes offline. Changes made in that time used to stay local
+// only: the issue was created as first written, and the next pull put that version back.
+describe("a task waiting to be created in Linear", () => {
+  const pending = () =>
+    task({
+      id: "temp-1",
+      syncState: "pendingCreate",
+      teamId: "team-1",
+      stateId: "todo-id",
+      stateName: "Todo",
+      stateType: "unstarted",
+    });
+
+  it("queues an edit against the id the issue will have", async () => {
+    vi.mocked(getCachedTasks).mockResolvedValue([pending()]);
+
+    await renameTask("temp-1", "Renamed");
+
+    expect(enqueueFieldUpdate).toHaveBeenCalledWith("temp-1", "title", "Renamed", "Test task");
+  });
+
+  it("queues a status change the same way", async () => {
+    vi.mocked(getCachedTasks).mockResolvedValue([pending()]);
+    vi.mocked(getCachedTeamStates).mockResolvedValue(teamStates([todo, done]));
+
+    await markTaskComplete("temp-1");
+
+    expect(enqueueFieldUpdate).toHaveBeenCalledWith("temp-1", "stateId", "done-id", "todo-id");
+  });
+
+  // Dropping it from the cache instead left its create queued, so the issue was created
+  // anyway and came back on the next pull.
+  it("is archived through the queue, behind its create, rather than dropped", async () => {
+    vi.mocked(getCachedTasks).mockResolvedValue([pending()]);
+
+    await archiveTask("temp-1");
+
+    expect(setCachedTasks).toHaveBeenCalledWith([expect.objectContaining({ id: "temp-1", archivedLocally: true })]);
+    expect(enqueueArchive).toHaveBeenCalledWith("temp-1");
+  });
+
+  it("is replaced by Linear's copy once a pull finds it already created", async () => {
+    vi.mocked(getCachedTasks).mockResolvedValue([pending()]);
+    vi.mocked(fetchAssignedIssues).mockResolvedValue({
+      tasks: [task({ id: "temp-1", teamId: "team-1", stateId: "todo-id", stateName: "Todo", stateType: "unstarted" })],
+      teamLabels: new Map(),
+      teamStates: teamStates([todo]),
+      teams: [],
+    });
+
+    const merged = await refreshItemsFromLinear();
+
+    expect(merged).toEqual([expect.objectContaining({ id: "temp-1", syncState: "synced" })]);
   });
 });
 

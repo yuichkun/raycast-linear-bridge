@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { archiveIssue, createIssue, updateIssueField } from "../repository/linearApi";
-import { dequeue, getQueue, SyncOp, UpdateFieldOp } from "../repository/syncQueue";
+import { dequeue, dequeueAllForIssue, getQueue, SyncOp, UpdateFieldOp } from "../repository/syncQueue";
 import { resolveCreatedTask, rollbackPendingOp } from "../storage";
 import { bareHttpAnswer, graphqlError, offline } from "../test/linearErrors";
 import { processQueue } from "./processQueue";
@@ -14,6 +14,7 @@ vi.mock("../repository/linearApi", () => ({
 
 vi.mock("../repository/syncQueue", () => ({
   dequeue: vi.fn(),
+  dequeueAllForIssue: vi.fn(),
   getQueue: vi.fn(),
 }));
 
@@ -70,6 +71,11 @@ beforeEach(() => {
     .mockReset()
     .mockImplementation(async (opId: string) => {
       queue = queue.filter((op) => op.opId !== opId);
+    });
+  vi.mocked(dequeueAllForIssue)
+    .mockReset()
+    .mockImplementation(async (issueId: string) => {
+      queue = queue.filter((op) => op.issueId !== issueId);
     });
   vi.mocked(createIssue).mockReset();
   vi.mocked(updateIssueField).mockReset();
@@ -190,5 +196,23 @@ describe("processQueue", () => {
 
     expect(vi.mocked(updateIssueField).mock.calls.map(([issueId]) => issueId)).toEqual(["issue-1", "issue-2"]);
     expect(queue).toEqual([held]);
+  });
+
+  // Edits made while a task waited to be created are queued against the issue's id-to-be.
+  // With the create refused there's no issue for them, and rolling each back would undo the
+  // edit on the task that rollbackPendingOp keeps as local-only.
+  it("drops a refused create's later ops without sending or rolling them back", async () => {
+    const create = createOp("1");
+    const rename: SyncOp = { ...updateOp("2", "temp-1", "Renamed"), field: "title" };
+    queue = [create, rename];
+    vi.mocked(createIssue).mockRejectedValue(rejected());
+
+    const result = await processQueue();
+
+    expect(updateIssueField).not.toHaveBeenCalled();
+    expect(rollbackPendingOp).toHaveBeenCalledTimes(1);
+    expect(rollbackPendingOp).toHaveBeenCalledWith(create);
+    expect(result.failures).toEqual([create]);
+    expect(queue).toEqual([]);
   });
 });

@@ -12,7 +12,7 @@ import {
   setCachedTeamStates,
   updateCachedTasks,
 } from "./repository/localCache";
-import { findLocalStage } from "./localStages";
+import { DEFAULT_LOCAL_STAGE, findLocalStage } from "./localStages";
 import { fetchAssignedIssues, fetchIssueComments, resolveStateOfType } from "./repository/linearApi";
 import { getDueHorizon, getVisibleTeamIds, setDueHorizon, setVisibleTeamIds } from "./repository/settings";
 import { DueHorizon } from "./date";
@@ -112,10 +112,14 @@ export async function refreshItemsFromLinear(): Promise<Task[]> {
   // Pending ops are laid over Linear's answer using the team metadata from that same answer,
   // so a queued state or label change shows with the names that go with it.
   const lookup: TeamMetadataLookup = { states: teamStates, labels: teamLabels };
+  const freshIds = new Set(fresh.map((task) => task.id));
   // The local-only tasks and pending ops are read only once the fetch is back and under the
   // lock, so a task created while Linear was answering is kept rather than overwritten.
   const { next: combined } = await updateCachedTasks(async (cached) => {
-    const localOnly = cached.filter((task) => task.syncState !== "synced");
+    // A task waiting to be created can already be in Linear (the create went through, but
+    // the run that sent it stopped before marking it synced). Linear's copy, with the queued
+    // edits laid over it, replaces it then — keeping both would list the task twice.
+    const localOnly = cached.filter((task) => task.syncState !== "synced" && !freshIds.has(task.id));
     const queue = await getQueue();
     return [...localOnly, ...applyPendingOpsToAll(fresh, queue, lookup)];
   });
@@ -224,9 +228,18 @@ async function moveTaskToState(
 
   const task = previous.find((t) => t.id === taskId);
   const moved = next.find((t) => t.id === taskId);
-  if (task?.syncState === "synced" && moved) {
+  if (task && moved && reachesLinear(task)) {
     await enqueueFieldUpdate(taskId, "stateId", moved.stateId, task.stateId);
   }
+}
+
+// Whether a change to this task has to be sent to Linear. A task still waiting to be created
+// counts: its id is the one Linear will give the issue (see createIssue), and its create op is
+// ahead of this change in the queue, so the change lands on the issue right after it exists.
+// Leaving it out sent the issue over as it was first written, and the next pull then replaced
+// the edited task with that original.
+function reachesLinear(task: Task): boolean {
+  return task.syncState !== "local";
 }
 
 export async function renameTask(taskId: string, title: string): Promise<void> {
@@ -258,7 +271,7 @@ async function updateTaskField(taskId: string, field: SyncOpField, value: unknow
   if (next === previous) return;
 
   const task = previous.find((t) => t.id === taskId);
-  if (task?.syncState === "synced") {
+  if (task && reachesLinear(task)) {
     await enqueueFieldUpdate(taskId, field, value, getFieldValue(task, field));
   }
 }
@@ -267,15 +280,20 @@ export async function archiveTask(taskId: string): Promise<void> {
   const { previous, next } = await updateCachedTasks((cached) => {
     const task = cached.find((t) => t.id === taskId);
     if (!task || task.archivedLocally) return cached;
-    // Local-only (or not-yet-created) tasks have nothing to archive on Linear's side —
-    // drop them from the cache outright instead of leaving an archivedLocally=true
-    // phantom that would otherwise sit there forever (no queue op will ever resolve it).
-    if (task.syncState !== "synced") return cached.filter((t) => t.id !== taskId);
+    // A local-only task has nothing to archive on Linear's side — drop it from the cache
+    // outright instead of leaving an archivedLocally=true phantom that would otherwise sit
+    // there forever (no queue op will ever resolve it).
+    if (task.syncState === "local") return cached.filter((t) => t.id !== taskId);
     return cached.map((t) => (t.id === taskId ? { ...t, archivedLocally: true } : t));
   });
   if (next === previous) return;
 
-  if (previous.find((t) => t.id === taskId)?.syncState === "synced") {
+  // A task still waiting to be created is archived the same way as a synced one. Its create
+  // is already queued, and may be on its way to Linear right now; dropping the task here
+  // instead only had the issue turn up again on the next pull. Queued behind the create, the
+  // archive follows it to Linear.
+  const task = previous.find((t) => t.id === taskId);
+  if (task && reachesLinear(task)) {
     await enqueueArchive(taskId);
   }
 }
@@ -397,9 +415,16 @@ export async function resolveCreatedTask(tempId: string, realId: string): Promis
 
 export async function rollbackPendingOp(op: SyncOp): Promise<void> {
   if (op.type === "create") {
-    // Linear rejected the creation — the local-only placeholder never became real, so
-    // remove it entirely instead of leaving a phantom task with no way to retry it.
-    await updateCachedTasks((cached) => cached.filter((task) => task.id !== op.issueId));
+    // Linear refused to create the issue. The task goes back to being local-only, keeping
+    // what was written for it (title, description, due date) — Promote to Linear can try
+    // again — instead of being deleted along with the failed create. One that was archived
+    // while it waited goes, as archiving a local-only task does.
+    await updateCachedTasks((cached) => {
+      const task = cached.find((t) => t.id === op.issueId);
+      if (!task) return cached;
+      if (task.archivedLocally) return cached.filter((t) => t.id !== op.issueId);
+      return cached.map((t) => (t.id === op.issueId ? toLocalOnly(t) : t));
+    });
     return;
   }
 
@@ -410,9 +435,30 @@ export async function rollbackPendingOp(op: SyncOp): Promise<void> {
   }
 
   const lookup = await readTeamMetadataLookup();
-  await updateCachedTasks((cached) =>
-    cached.map((task) => (task.id === op.issueId ? rollbackOpOnTask(task, op, lookup) : task)),
-  );
+  await updateCachedTasks((cached) => {
+    const task = cached.find((t) => t.id === op.issueId);
+    // A local-only task has no issue for the op to have been about: it's one whose create
+    // Linear refused, and the op was queued for it in the moment before that rollback (List
+    // Tasks and the scheduled Sync run as separate processes). Rolling the op back would only
+    // undo the user's edit on the task that was kept.
+    if (!task || task.syncState === "local") return cached;
+    return cached.map((t) => (t.id === op.issueId ? rollbackOpOnTask(t, op, lookup) : t));
+  });
+}
+
+// Everything that only means something in Linear goes: the team, its state (the task takes
+// the LOCAL_STAGES stage of the same type, or the default one), and labels.
+function toLocalOnly(task: Task): Task {
+  const stage = findLocalStage(task.stateType) ?? DEFAULT_LOCAL_STAGE;
+  return {
+    ...withState(task, { name: stage.name, type: stage.type }),
+    syncState: "local",
+    teamId: undefined,
+    teamName: undefined,
+    labelIds: [],
+    labelNames: [],
+    url: undefined,
+  };
 }
 
 function rollbackOpOnTask(task: Task, op: UpdateFieldOp | ArchiveOp, lookup: TeamMetadataLookup): Task {
@@ -447,9 +493,10 @@ function applyPendingOpsToAll(tasks: Task[], queue: SyncOp[], lookup: TeamMetada
     return pendingOps.reduce((acc, op) => {
       if (op.type === "updateField") return applyOpToTask(acc, op.field, op.value, lookup);
       if (op.type === "archive") return { ...acc, archivedLocally: true };
-      // A "create" op never matches here (its issueId is a tempId that `tasks`, fetched
-      // fresh from Linear, can't contain yet), and a pending comment changes nothing on
-      // the task itself — it must not fall through into the archive branch.
+      // A "create" op only matches here once Linear already has the issue (a create that
+      // went through but wasn't dequeued yet), so there's nothing left for it to change; a
+      // pending comment changes nothing on the task itself. Neither may fall through into
+      // the archive branch.
       return acc;
     }, task);
   });

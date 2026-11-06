@@ -117,6 +117,11 @@ export async function dequeue(opId: string): Promise<void> {
   await updateQueue((queue) => queue.filter((op) => op.opId !== opId));
 }
 
+// Every op for one issue at once — for when the issue itself is never going to exist.
+export async function dequeueAllForIssue(issueId: string): Promise<void> {
+  await updateQueue((queue) => queue.filter((op) => op.issueId !== issueId));
+}
+
 export async function getPendingOpsForIssue(issueId: string): Promise<SyncOp[]> {
   const queue = await getQueue();
   return queue.filter((op) => op.issueId === issueId);
