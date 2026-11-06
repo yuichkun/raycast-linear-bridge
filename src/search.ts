@@ -1,6 +1,6 @@
 import Fuse from "fuse.js";
 import { PRIORITY_NAMES } from "./constants";
-import { determineDueUrgency } from "./date";
+import { determineDueUrgency, formatDueDate } from "./date";
 import { Task } from "./types";
 
 type SearchTarget = Task & {
@@ -14,7 +14,7 @@ type SearchTarget = Task & {
 export function searchItems(unfilteredItems: Task[], searchText: string): Task[] {
   const searchTargets: SearchTarget[] = unfilteredItems.map((task) => ({
     ...task,
-    dueDateFormatted: task.dueDate ? new Date(task.dueDate).toLocaleDateString() : undefined,
+    dueDateFormatted: task.dueDate ? formatDueDate(task.dueDate) : undefined,
     urgency: determineDueUrgency(task.dueDate),
     hasNoLabel: task.labelNames.length === 0 ? "no label" : "",
     priorityName: PRIORITY_NAMES[task.priority] ?? "No priority",

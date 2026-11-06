@@ -4,6 +4,7 @@ import { FilterTeamsAction } from "./actions/FilterTeams";
 import { TaskDetailView } from "./actions/TaskDetailView";
 import { TaskEditMenu } from "./actions/edit";
 import { PRIORITY_COLORS, PRIORITY_ICONS } from "./constants";
+import { formatDueDate } from "./date";
 import { nameToColor } from "./nameToColor";
 import { classifyTask } from "./task-order";
 import { taskDetailMarkdown, TaskMetadata } from "./TaskMetadata";
@@ -34,7 +35,7 @@ export const TaskLineItem: FC<Props> = ({ task, refetchList, isShowingDetail, on
         { icon: priorityIcon ? { source: priorityIcon, tintColor: PRIORITY_COLORS[task.priority] } : null },
         ...task.labelNames.map((name) => ({ tag: { value: name, color: nameToColor(name) } })),
         { tag: showStateTag && task.stateName ? { value: task.stateName } : null },
-        { text: task.dueDate ? new Date(task.dueDate).toLocaleDateString() : null },
+        { text: task.dueDate ? formatDueDate(task.dueDate) : null },
       ]}
       detail={<List.Item.Detail markdown={taskDetailMarkdown(task)} metadata={<TaskMetadata task={task} />} />}
       actions={

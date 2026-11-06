@@ -2,7 +2,7 @@ import { Action, ActionPanel, Form, showToast, Toast, useNavigation } from "@ray
 import { useCachedPromise } from "@raycast/utils";
 import { FC } from "react";
 import { PRIORITY_NAMES } from "../constants";
-import { formatDateOnly } from "../date";
+import { formatDateOnly, parseDateOnly } from "../date";
 import { LOCAL_STAGES } from "../localStages";
 import {
   changeTaskState,
@@ -114,7 +114,7 @@ export const EditTask: FC<Props> = ({ task, refetchList }) => {
         id="dueDate"
         title="Due Date"
         type={Form.DatePicker.Type.Date}
-        defaultValue={task.dueDate ? new Date(task.dueDate) : undefined}
+        defaultValue={task.dueDate ? parseDateOnly(task.dueDate) : undefined}
       />
       <Form.Dropdown id="priority" title="Priority" defaultValue={String(task.priority)}>
         {Object.entries(PRIORITY_NAMES).map(([value, name]) => (

@@ -8,6 +8,21 @@ export function formatDateOnly(date: Date): string {
   return `${year}-${month}-${day}`;
 }
 
+// The inverse of formatDateOnly: a YYYY-MM-DD value as that calendar day at local midnight.
+// `new Date("2026-11-06")` is not that — the spec reads a date-only string as UTC midnight,
+// which anywhere west of UTC is the evening of the 5th. Every due date shown, compared or
+// put in a date picker went through it, so west of UTC each one was a day early, and saving
+// Edit Task wrote that earlier day back to Linear even when the date was never touched.
+export function parseDateOnly(value: string): Date {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
+// A due date as the user's locale writes a date.
+export function formatDueDate(value: string): string {
+  return parseDateOnly(value).toLocaleDateString();
+}
+
 // How far ahead the list looks: tasks due after the horizon's last day are hidden. The
 // windows are rolling (today + N days, inclusive), not calendar periods: a "this week"
 // that ends on Sunday hides Monday's deadline when opened on Sunday night, and a "this
@@ -48,31 +63,25 @@ export function isDueWithinHorizon(dueDate: string | undefined, horizonEnd: stri
   return dueDate <= horizonEnd;
 }
 
-export function isPastDue(dueDate?: string): boolean {
+// Compared as YYYY-MM-DD strings, like isDueWithinHorizon, so no timezone can shift a day.
+export function isPastDue(dueDate?: string, now: Date = new Date()): boolean {
   if (!dueDate) return false;
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  const due = new Date(dueDate);
-  due.setHours(0, 0, 0, 0);
-
-  return due.getTime() < today.getTime();
+  return dueDate < formatDateOnly(now);
 }
 
 // Mirrors todo-buddy's determinePriority: a search-friendly bucket for how soon a task
 // is due, independent of Linear's own `priority` field.
 export type DueUrgency = "past" | "today" | "tomorrow" | undefined;
 
-export function determineDueUrgency(dueDate?: string): DueUrgency {
+export function determineDueUrgency(dueDate?: string, now: Date = new Date()): DueUrgency {
   if (!dueDate) return undefined;
 
-  const today = new Date();
+  const today = new Date(now);
   today.setHours(0, 0, 0, 0);
 
-  const due = new Date(dueDate);
-  due.setHours(0, 0, 0, 0);
+  const due = parseDateOnly(dueDate);
 
+  // Rounded because a day across a daylight-saving change is 23 or 25 hours long.
   const diffDays = Math.round((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
 
   if (diffDays < 0) return "past";

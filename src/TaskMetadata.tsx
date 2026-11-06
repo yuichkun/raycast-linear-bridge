@@ -1,6 +1,7 @@
 import { Detail } from "@raycast/api";
 import { FC } from "react";
 import { PRIORITY_NAMES } from "./constants";
+import { formatDueDate } from "./date";
 import { nameToColor } from "./nameToColor";
 import { Task } from "./types";
 
@@ -24,7 +25,7 @@ export const TaskMetadata: FC<Props> = ({ task }) => {
       {isLocalOnly && <Detail.Metadata.Label title="Sync" text="Local only — not saved to Linear" />}
       <Detail.Metadata.Label title="Team" text={task.teamName ?? "—"} />
       <Detail.Metadata.Label title="Status" text={task.stateName ?? "—"} />
-      <Detail.Metadata.Label title="Due Date" text={task.dueDate ? new Date(task.dueDate).toLocaleDateString() : "—"} />
+      <Detail.Metadata.Label title="Due Date" text={task.dueDate ? formatDueDate(task.dueDate) : "—"} />
       <Detail.Metadata.Label title="Priority" text={PRIORITY_NAMES[task.priority] ?? "No priority"} />
       <Detail.Metadata.Separator />
       <Detail.Metadata.TagList title="Labels">

@@ -1,5 +1,13 @@
-import { describe, expect, it } from "vitest";
-import { dueHorizonEnd, isDueWithinHorizon, parseDueHorizon } from "./date";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+  determineDueUrgency,
+  dueHorizonEnd,
+  formatDateOnly,
+  isDueWithinHorizon,
+  isPastDue,
+  parseDateOnly,
+  parseDueHorizon,
+} from "./date";
 
 // Local-time constructors (not ISO strings) so these run the same in any timezone —
 // formatDateOnly reads local date parts.
@@ -139,5 +147,71 @@ describe("parseDueHorizon", () => {
     expect(parseDueHorizon("month")).toBe("all");
     expect(parseDueHorizon("fortnight")).toBe("all");
     expect(parseDueHorizon(undefined)).toBe("all");
+  });
+});
+
+describe("parseDateOnly", () => {
+  it("reads YYYY-MM-DD as that calendar day, at local midnight", () => {
+    const date = parseDateOnly("2026-11-06");
+
+    expect([date.getFullYear(), date.getMonth() + 1, date.getDate(), date.getHours()]).toEqual([2026, 11, 6, 0]);
+  });
+
+  it("round-trips through formatDateOnly", () => {
+    for (const value of ["2026-01-01", "2026-02-28", "2028-02-29", "2026-12-31"]) {
+      expect(formatDateOnly(parseDateOnly(value))).toBe(value);
+    }
+  });
+});
+
+describe("isPastDue", () => {
+  it("is overdue only from the day after the due date", () => {
+    expect(isPastDue("2026-11-05", at(2026, 11, 6, 9))).toBe(true);
+    expect(isPastDue("2026-11-06", at(2026, 11, 6, 23, 59))).toBe(false);
+    expect(isPastDue("2026-11-07", at(2026, 11, 6))).toBe(false);
+  });
+
+  it("is never overdue without a due date", () => {
+    expect(isPastDue(undefined)).toBe(false);
+  });
+});
+
+describe("determineDueUrgency", () => {
+  it("buckets yesterday, today and tomorrow", () => {
+    const now = at(2026, 11, 6, 15);
+
+    expect(determineDueUrgency("2026-11-05", now)).toBe("past");
+    expect(determineDueUrgency("2026-11-06", now)).toBe("today");
+    expect(determineDueUrgency("2026-11-07", now)).toBe("tomorrow");
+    expect(determineDueUrgency("2026-11-08", now)).toBeUndefined();
+  });
+});
+
+// The bug: due dates went through `new Date("YYYY-MM-DD")`, which reads a date-only string as
+// UTC midnight — the evening before, anywhere west of UTC. Tasks due today showed as overdue,
+// every date showed a day early, and saving Edit Task wrote the earlier day back to Linear.
+describe("due dates west of UTC", () => {
+  const originalTz = process.env.TZ;
+
+  beforeEach(() => {
+    process.env.TZ = "America/New_York";
+  });
+
+  afterEach(() => {
+    if (originalTz === undefined) delete process.env.TZ;
+    else process.env.TZ = originalTz;
+  });
+
+  it("really is running west of UTC", () => {
+    expect(at(2026, 11, 6).getTimezoneOffset()).toBeGreaterThan(0);
+  });
+
+  it("keeps the due day when read back for Edit Task's date picker", () => {
+    expect(formatDateOnly(parseDateOnly("2026-11-06"))).toBe("2026-11-06");
+  });
+
+  it("doesn't call a task due today overdue", () => {
+    expect(isPastDue("2026-11-06", at(2026, 11, 6, 9))).toBe(false);
+    expect(determineDueUrgency("2026-11-06", at(2026, 11, 6, 9))).toBe("today");
   });
 });
