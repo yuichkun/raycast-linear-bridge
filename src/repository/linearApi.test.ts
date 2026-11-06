@@ -89,6 +89,164 @@ describe("createIssue", () => {
 });
 
 describe("fetchAssignedIssues", () => {
+  type Page = { nodes: unknown[]; pageInfo: { hasNextPage: boolean; endCursor: string | null } };
+
+  function page(nodes: unknown[], endCursor: string | null = null): Page {
+    return { nodes, pageInfo: { hasNextPage: endCursor !== null, endCursor } };
+  }
+
+  // Stands in for the raw GraphQL client: each query is answered from its list of pages,
+  // picked by the `after` cursor it was sent (no cursor = the first page).
+  function mockRequests(pages: {
+    teams?: Record<string, Page>;
+    workflowStates?: Record<string, Page>;
+    issueLabels?: Record<string, Page>;
+    issues?: Record<string, Page>;
+    issueLabelsPage?: Record<string, Page>;
+  }) {
+    const answer = (byCursor: Record<string, Page> | undefined, after: unknown) =>
+      byCursor?.[typeof after === "string" ? after : ""] ?? page([]);
+    const request = vi.fn(async (query: string, variables: { after?: string }) => {
+      if (query.includes("query Teams")) return { teams: answer(pages.teams, variables.after) };
+      if (query.includes("query WorkflowStates")) {
+        return { workflowStates: answer(pages.workflowStates, variables.after) };
+      }
+      if (query.includes("query IssueLabels(")) return { issueLabels: answer(pages.issueLabels, variables.after) };
+      if (query.includes("query IssueLabelsPage")) {
+        return { issue: { labels: answer(pages.issueLabelsPage, variables.after) } };
+      }
+      if (query.includes("query AssignedIssues")) return { issues: answer(pages.issues, variables.after) };
+      throw new Error(`unexpected query: ${query.slice(0, 40)}`);
+    });
+    mockClient({ client: { request } });
+    return request;
+  }
+
+  const general = { id: "general", name: "General" };
+  const suara = { id: "suara", name: "SUARA" };
+
+  function state(id: string, type: string, position: number, teamId = "general") {
+    return { id, name: id, type, position, team: { id: teamId } };
+  }
+
+  // The bug: states were fetched with `first: 20` and no paging. General has 21 states,
+  // and "Done" fell outside the first 20, so Mark as Complete picked the next completed
+  // state it could see.
+  it("reads states to the last page, so a team's 21st state isn't dropped", async () => {
+    const first20 = Array.from({ length: 20 }, (_, i) => state(`state-${i}`, "started", 10 + i));
+    mockRequests({
+      teams: { "": page([general]) },
+      workflowStates: { "": page(first20, "cursor-1"), "cursor-1": page([state("Done", "completed", 3)]) },
+    });
+
+    const { teamStates } = await fetchAssignedIssues();
+
+    expect(teamStates.get("general")).toHaveLength(21);
+    expect(resolveStateOfType(teamStates.get("general") ?? [], "completed")?.id).toBe("Done");
+  });
+
+  it("files each state under its own team", async () => {
+    mockRequests({
+      teams: { "": page([general, suara]) },
+      workflowStates: { "": page([state("g-done", "completed", 3), state("s-done", "completed", 3, "suara")]) },
+    });
+
+    const { teamStates } = await fetchAssignedIssues();
+
+    expect(teamStates.get("general")?.map((s) => s.id)).toEqual(["g-done"]);
+    expect(teamStates.get("suara")?.map((s) => s.id)).toEqual(["s-done"]);
+  });
+
+  it("reads every page of teams and labels too", async () => {
+    mockRequests({
+      teams: { "": page([general], "t-1"), "t-1": page([suara]) },
+      issueLabels: {
+        "": page([{ id: "l1", name: "One", isGroup: false, team: null }], "l-1"),
+        "l-1": page([{ id: "l2", name: "Two", isGroup: false, team: null }]),
+      },
+    });
+
+    const { teams, teamLabels } = await fetchAssignedIssues();
+
+    expect(teams).toEqual([general, suara]);
+    expect(teamLabels.get("suara")?.map((l) => l.id)).toEqual(["l1", "l2"]);
+  });
+
+  // Team.labels leaves out workspace labels — and those (suara, den-kit, ...) are on most of
+  // this workspace's issues.
+  it("offers every team the workspace's labels plus its own, but no other team's and no label groups", async () => {
+    mockRequests({
+      teams: { "": page([general, suara]) },
+      issueLabels: {
+        "": page([
+          { id: "workspace", name: "suara", isGroup: false, team: null },
+          { id: "general-own", name: "LAPRAS", isGroup: false, team: { id: "general" } },
+          { id: "suara-own", name: "実装", isGroup: false, team: { id: "suara" } },
+          { id: "group", name: "Area", isGroup: true, team: { id: "general" } },
+        ]),
+      },
+    });
+
+    const { teamLabels } = await fetchAssignedIssues();
+
+    expect(teamLabels.get("general")).toEqual([
+      { id: "workspace", name: "suara" },
+      { id: "general-own", name: "LAPRAS" },
+    ]);
+    expect(teamLabels.get("suara")).toEqual([
+      { id: "workspace", name: "suara" },
+      { id: "suara-own", name: "実装" },
+    ]);
+  });
+
+  it("fails rather than stopping early when a page claims more results but gives no cursor", async () => {
+    mockRequests({
+      teams: { "": page([general]) },
+      workflowStates: { "": { nodes: [], pageInfo: { hasNextPage: true, endCursor: null } } },
+    });
+
+    await expect(fetchAssignedIssues()).rejects.toThrow();
+  });
+
+  function issueWithLabels(labelCount: number) {
+    return {
+      id: "issue-1",
+      title: "T",
+      description: null,
+      dueDate: null,
+      priority: 0,
+      url: "https://linear.app/x/issue/X-1",
+      state: null,
+      team: null,
+      labels: { nodes: Array.from({ length: labelCount }, (_, i) => ({ id: `l${i}`, name: `L${i}` })) },
+    };
+  }
+
+  // The inline labels page is 50 and has no pageInfo (that would push the issues query past
+  // Linear's complexity cap), so a full page is the sign there may be more.
+  it("reads all of an issue's labels when they fill the page read inline", async () => {
+    const all = Array.from({ length: 51 }, (_, i) => ({ id: `l${i}`, name: `L${i}` }));
+    const request = mockRequests({
+      issues: { "": page([issueWithLabels(50)]) },
+      issueLabelsPage: { "": page(all.slice(0, 30), "more"), more: page(all.slice(30)) },
+    });
+
+    const { tasks } = await fetchAssignedIssues();
+
+    expect(tasks[0].labelIds).toHaveLength(51);
+    expect(tasks[0].labelNames[50]).toBe("L50");
+    expect(request.mock.calls.filter(([query]) => query.includes("query IssueLabelsPage"))).toHaveLength(2);
+  });
+
+  it("makes no extra request for an issue whose labels didn't fill the inline page", async () => {
+    const request = mockRequests({ issues: { "": page([issueWithLabels(49)]) } });
+
+    const { tasks } = await fetchAssignedIssues();
+
+    expect(tasks[0].labelIds).toHaveLength(49);
+    expect(request.mock.calls.some(([query]) => query.includes("query IssueLabelsPage"))).toBe(false);
+  });
+
   // The raw client throws fetch's TypeError, or its own error class; these come back as the
   // SDK's typed errors so the sync can tell "offline" from "refused".
   it("hands back a failed request as one of the SDK's typed errors", async () => {

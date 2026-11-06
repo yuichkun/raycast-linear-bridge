@@ -4,6 +4,29 @@ import { CommentReaction, CreateIssueInput, IssueComment, Task, WorkflowStateTyp
 import { shouldRetryLater } from "./linearErrors";
 import { SyncOpField } from "./syncQueue";
 
+type PageInfo = { hasNextPage: boolean; endCursor: string | null };
+type Connection<T> = { nodes: T[]; pageInfo: PageInfo };
+
+// Linear's largest page size.
+const PAGE_SIZE = 250;
+
+// Every list this extension reads from Linear is read to its last page. A fixed `first: N`
+// with no cursor silently drops whatever comes after the Nth node: that is how a team's 21st
+// workflow state pushed "Done" out of the cached states, so Mark as Complete moved tasks to
+// whichever other completed state came first. A page that claims more results but gives no
+// cursor to fetch them with is an error rather than a reason to stop early or loop forever.
+async function fetchAllPages<T>(fetchPage: (after: string | undefined) => Promise<Connection<T>>): Promise<T[]> {
+  const nodes: T[] = [];
+  let after: string | undefined;
+  for (;;) {
+    const page = await fetchPage(after);
+    nodes.push(...page.nodes);
+    if (!page.pageInfo.hasNextPage) return nodes;
+    if (!page.pageInfo.endCursor) throw new Error("Linear reported another page but gave no cursor for it");
+    after = page.pageInfo.endCursor;
+  }
+}
+
 // The raw GraphQL client below the SDK throws its own error class (or fetch's TypeError when
 // there is no response at all); the SDK's typed methods wrap theirs with parseLinearError.
 // Doing the same here means every failure from Linear reaches the caller as a LinearError,
@@ -16,11 +39,21 @@ async function request<T>(client: LinearClient, query: string, variables: Record
   }
 }
 
+// How many of an issue's labels ISSUES_QUERY reads inline — Linear's default page size, so
+// the query costs what it did before it named one. An issue with exactly this many may have
+// more, and gets the rest read separately (fetchAllIssueNodes).
+const INLINE_LABELS = 50;
+
 // Issue.state / Issue.team / Issue.labels() on the SDK's high-level Issue class each
 // resolve via a separate GraphQL request (confirmed by reading the compiled SDK), which
 // turns fetching N issues into 1 + 3N requests and quickly exhausts Linear's rate limit
 // (2500 req/hour). Querying `issues` directly with nested field selections keeps this to
 // a small, constant number of requests regardless of how many issues are assigned.
+//
+// The query's complexity score is capped at 10000, and by Linear's documented scoring
+// everything inside a connection counts once per item it can return — inside `labels`, once
+// per label of every issue. A `pageInfo` there would roughly double the score of a 100-issue
+// page, so the labels page carries none, and a full page is what says there may be more.
 const ISSUES_QUERY = `
   query AssignedIssues($filter: IssueFilter, $first: Int, $after: String) {
     issues(filter: $filter, first: $first, after: $after) {
@@ -41,7 +74,7 @@ const ISSUES_QUERY = `
           id
           name
         }
-        labels {
+        labels(first: ${INLINE_LABELS}) {
           nodes {
             id
             name
@@ -56,36 +89,92 @@ const ISSUES_QUERY = `
   }
 `;
 
-// Fetches each team's labels and states here (not lazily when opening an edit form) so
-// that the offline-first guarantee holds for those forms too — the choices need to come
-// from the cache, not a live request. Connection sizes are kept modest (this workspace has
-// 6 teams / 8 states / 10 labels) since nested pagination args multiply the GraphQL query's
-// complexity score; a naive `first: 250` on multiple nested connections tripped the 10000
-// complexity ceiling in an earlier version of this query.
-const TEAM_METADATA_QUERY = `
-  query TeamMetadata {
-    teams(first: 20) {
-      nodes {
-        id
-        name
-        states(first: 20) {
-          nodes {
-            id
-            name
-            type
-            position
-          }
+// All of one issue's labels, for the rare issue whose labels fill the page read inline in
+// ISSUES_QUERY.
+const ISSUE_LABELS_PAGE_QUERY = `
+  query IssueLabelsPage($id: String!, $first: Int, $after: String) {
+    issue(id: $id) {
+      labels(first: $first, after: $after) {
+        nodes {
+          id
+          name
         }
-        labels(first: 50) {
-          nodes {
-            id
-            name
-          }
+        pageInfo {
+          hasNextPage
+          endCursor
         }
       }
     }
   }
 `;
+
+// Teams, workflow states and labels are fetched here (not lazily when opening an edit form)
+// so that the offline-first guarantee holds for those forms too — the choices need to come
+// from the cache, not a live request.
+//
+// Each is its own flat, top-level connection read to its last page, rather than states and
+// labels nested inside `teams`: nested connections can't be paged independently, and their
+// page sizes multiply into the query's complexity score (a `first: 250` nested inside
+// another `first: 250` tripped the 10000 ceiling in an earlier version). A flat list carries
+// each node's team id instead.
+const TEAMS_QUERY = `
+  query Teams($first: Int, $after: String) {
+    teams(first: $first, after: $after) {
+      nodes {
+        id
+        name
+      }
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+    }
+  }
+`;
+
+const WORKFLOW_STATES_QUERY = `
+  query WorkflowStates($first: Int, $after: String) {
+    workflowStates(first: $first, after: $after) {
+      nodes {
+        id
+        name
+        type
+        position
+        team {
+          id
+        }
+      }
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+    }
+  }
+`;
+
+// All labels, not just each team's own: `Team.labels` leaves out workspace-level labels
+// (team: null), which are available to every team, so a picker built from it alone couldn't
+// show or keep them.
+const ISSUE_LABELS_QUERY = `
+  query IssueLabels($first: Int, $after: String) {
+    issueLabels(first: $first, after: $after) {
+      nodes {
+        id
+        name
+        isGroup
+        team {
+          id
+        }
+      }
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+    }
+  }
+`;
+
+type RawIssueLabel = { id: string; name: string };
 
 type RawIssueNode = {
   id: string;
@@ -96,29 +185,22 @@ type RawIssueNode = {
   url: string;
   state: { id: string; name: string; type: string; position: number } | null;
   team: { id: string; name: string } | null;
-  labels: { nodes: { id: string; name: string }[] };
+  labels: { nodes: RawIssueLabel[] };
 };
 
-type IssuesQueryResult = {
-  issues: {
-    nodes: RawIssueNode[];
-    pageInfo: { hasNextPage: boolean; endCursor: string | null };
-  };
-};
+type IssuesQueryResult = { issues: Connection<RawIssueNode> };
+type IssueLabelsPageQueryResult = { issue: { labels: Connection<RawIssueLabel> } };
 
 export type RawState = { id: string; name: string; type: string; position: number };
 type RawLabel = { id: string; name: string };
 
-type TeamMetadataQueryResult = {
-  teams: {
-    nodes: {
-      id: string;
-      name: string;
-      states: { nodes: RawState[] };
-      labels: { nodes: RawLabel[] };
-    }[];
-  };
-};
+type RawTeamNode = { id: string; name: string };
+type RawWorkflowStateNode = RawState & { team: { id: string } };
+export type RawLabelNode = RawLabel & { isGroup: boolean; team: { id: string } | null };
+
+type TeamsQueryResult = { teams: Connection<RawTeamNode> };
+type WorkflowStatesQueryResult = { workflowStates: Connection<RawWorkflowStateNode> };
+type IssueLabelsQueryResult = { issueLabels: Connection<RawLabelNode> };
 
 export type TeamMetadata = {
   name: string;
@@ -127,45 +209,84 @@ export type TeamMetadata = {
 };
 
 // The single rule for "which state should a task move to for a given category" (started,
-// completed, backlog, ...): lowest position among that team's states of that type. Used
-// both at full-sync time and on-demand (EditTask, Promote to Linear, Mark as
-// Complete/in Progress) so there's one place this decision is made, not one per call site.
-// Some teams (e.g. one in this workspace, which has both a "Pending" and an "In Progress"
-// state under "started") have more than one state per category — position picks a single
-// winner deterministically.
+// completed, backlog, ...): the first state of that type in the team's workflow, i.e. the
+// lowest position — Linear displays the states of each type in ascending position order, so
+// this is the one listed first under that type in the team's workflow settings. Used both at
+// full-sync time and on-demand (EditTask, Promote to Linear, Mark as Complete/in Progress) so
+// there's one place this decision is made, not one per call site. Linear's own automations
+// pick "the first Started status" the same way. A team can have several states of one type
+// (this workspace's General has both "Pending" and "In Progress" under started, and "Done"
+// followed by several 【案件】 states under completed). It only picks from the states it's
+// given, which is why the team's state list must be complete (see fetchAllPages).
 export function resolveStateOfType(states: RawState[], type: RawState["type"]): RawState | undefined {
   return [...states].filter((state) => state.type === type).sort((a, b) => a.position - b.position)[0];
 }
 
+// The labels an issue in a given team can take: the workspace's labels plus that team's own.
+// Group labels are left out — Linear doesn't let a group be applied to an issue itself, only
+// the labels inside it.
+export function labelsAvailableToTeam(labels: RawLabelNode[], teamId: string): RawLabel[] {
+  return labels
+    .filter((label) => !label.isGroup && (label.team === null || label.team.id === teamId))
+    .map(({ id, name }) => ({ id, name }));
+}
+
 async function fetchTeamMetadata(client: LinearClient): Promise<Map<string, TeamMetadata>> {
-  const result = await request<TeamMetadataQueryResult>(client, TEAM_METADATA_QUERY);
+  const [teams, states, labels] = await Promise.all([
+    fetchAllPages((after) =>
+      request<TeamsQueryResult>(client, TEAMS_QUERY, { first: PAGE_SIZE, after }).then((data) => data.teams),
+    ),
+    fetchAllPages((after) =>
+      request<WorkflowStatesQueryResult>(client, WORKFLOW_STATES_QUERY, { first: PAGE_SIZE, after }).then(
+        (data) => data.workflowStates,
+      ),
+    ),
+    fetchAllPages((after) =>
+      request<IssueLabelsQueryResult>(client, ISSUE_LABELS_QUERY, { first: PAGE_SIZE, after }).then(
+        (data) => data.issueLabels,
+      ),
+    ),
+  ]);
+
+  const statesByTeam = new Map<string, RawState[]>();
+  for (const { team, ...state } of states) {
+    statesByTeam.set(team.id, [...(statesByTeam.get(team.id) ?? []), state]);
+  }
+
+  // Teams keep the order Linear lists them in: pickDefaultTeam falls back to the first one.
   const map = new Map<string, TeamMetadata>();
-  for (const team of result.teams.nodes) {
+  for (const team of teams) {
     map.set(team.id, {
       name: team.name,
-      states: team.states.nodes,
-      labels: team.labels.nodes,
+      states: statesByTeam.get(team.id) ?? [],
+      labels: labelsAvailableToTeam(labels, team.id),
     });
   }
   return map;
 }
 
 async function fetchAllIssueNodes(client: LinearClient, viewerId: string): Promise<RawIssueNode[]> {
-  const nodes: RawIssueNode[] = [];
-  let after: string | undefined;
-
-  for (;;) {
-    const result = await request<IssuesQueryResult>(client, ISSUES_QUERY, {
+  const nodes = await fetchAllPages((after) =>
+    request<IssuesQueryResult>(client, ISSUES_QUERY, {
       filter: { assignee: { id: { eq: viewerId } } },
       first: 100,
       after,
-    });
-    nodes.push(...result.issues.nodes);
-    if (!result.issues.pageInfo.hasNextPage) break;
-    after = result.issues.pageInfo.endCursor ?? undefined;
-  }
+    }).then((data) => data.issues),
+  );
 
-  return nodes;
+  return Promise.all(
+    nodes.map(async (node) => {
+      if (node.labels.nodes.length < INLINE_LABELS) return node;
+      const all = await fetchAllPages((after) =>
+        request<IssueLabelsPageQueryResult>(client, ISSUE_LABELS_PAGE_QUERY, {
+          id: node.id,
+          first: PAGE_SIZE,
+          after,
+        }).then((data) => data.issue.labels),
+      );
+      return { ...node, labels: { nodes: all } };
+    }),
+  );
 }
 
 function toTask(node: RawIssueNode): Task {
@@ -343,14 +464,7 @@ export type RawCommentNode = {
   externalUser: { name: string; displayName: string } | null;
 };
 
-type IssueCommentsQueryResult = {
-  issue: {
-    comments: {
-      nodes: RawCommentNode[];
-      pageInfo: { hasNextPage: boolean; endCursor: string | null };
-    };
-  };
-};
+type IssueCommentsQueryResult = { issue: { comments: Connection<RawCommentNode> } };
 
 // A comment has exactly one author identity: a workspace user, a bot (Linear Agent, an
 // integration), or an external person on a synced Slack/email thread. All three have to
@@ -385,19 +499,10 @@ export function toIssueComment(node: RawCommentNode): IssueComment {
 
 export async function fetchIssueComments(issueId: string): Promise<IssueComment[]> {
   const client = getLinearClient();
-  const nodes: RawCommentNode[] = [];
-  let after: string | undefined;
-
-  for (;;) {
-    const result = await request<IssueCommentsQueryResult>(client, ISSUE_COMMENTS_QUERY, {
-      id: issueId,
-      first: 50,
-      after,
-    });
-    nodes.push(...result.issue.comments.nodes);
-    if (!result.issue.comments.pageInfo.hasNextPage) break;
-    after = result.issue.comments.pageInfo.endCursor ?? undefined;
-  }
-
+  const nodes = await fetchAllPages((after) =>
+    request<IssueCommentsQueryResult>(client, ISSUE_COMMENTS_QUERY, { id: issueId, first: 50, after }).then(
+      (data) => data.issue.comments,
+    ),
+  );
   return nodes.map(toIssueComment);
 }
